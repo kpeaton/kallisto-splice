@@ -11,6 +11,8 @@ cmake_install.cmake
 install_manifest.txt
 test/tests
 test
+downloads
+*.zip
 src/kallisto
 src/*.a
 CTestTestfile.cmake
