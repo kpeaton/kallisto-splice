@@ -12,7 +12,7 @@
 
 #include <zlib.h>
 
-#inlucde "wincompat.h"
+#include "wincompat.h"
 
 #include "common.h"
 #include "ProcessReads.h"
