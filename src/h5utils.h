@@ -10,6 +10,10 @@
 
 #include <iostream>
 
+#if defined(WIN32) || defined(WIN64)
+#include "wincompat.h"
+#endif
+
 #include "hdf5.h"
 
 // begin: writing utils

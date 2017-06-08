@@ -3,6 +3,7 @@
 
 #include "KmerIndex.h"
 #include "MinCollector.h"
+#include <algorithm>
 #include <cmath>
 #include <unordered_map>
 #include <utility>

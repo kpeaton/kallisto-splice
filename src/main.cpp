@@ -12,7 +12,10 @@
 
 #include <zlib.h>
 
+#include <chrono>
+#if defined(WIN32) || defined(WIN64)
 #include "wincompat.h"
+#endif
 
 #include "common.h"
 #include "ProcessReads.h"
@@ -322,7 +325,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int umi_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:b:";
+  const char *opt_string = "t:i:l:s:o:b:e:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -337,6 +340,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"fragment-length", required_argument, 0, 'l'},
     {"sd", required_argument, 0, 's'},
     {"output-dir", required_argument, 0, 'o'},
+	{"exon-coords", required_argument, 0, 'e'},
     {0,0,0,0}
   };
   int c;
@@ -376,6 +380,10 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
       opt.batch_file_name = optarg;
       break;
     }
+	case 'e': {
+		opt.exon_coords_file = optarg;
+		break;
+	}
     default: break;
     }
   }
@@ -838,6 +846,16 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
     }
   }
 
+  // check for exon_coords_file
+  if (!opt.exon_coords_file.empty()) {
+	  struct stat stFileInfo;
+	  auto intStat = stat(opt.exon_coords_file.c_str(), &stFileInfo);
+	  if (intStat != 0) {
+		  cerr << ERROR_STR << " kallisto exon coordinate file not found " << opt.exon_coords_file << endl;
+		  ret = false;
+	  }
+  }
+
   return ret;
 }
 
@@ -1008,7 +1026,8 @@ void usagePseudo(bool valid_input = true) {
        << "-s, --sd=DOUBLE               Estimated standard deviation of fragment length" << endl
        << "                              (default: value is estimated from the input data)" << endl
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
-       << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl;
+       << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
+	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl;
 
 }
 
@@ -1326,6 +1345,8 @@ int main(int argc, char *argv[]) {
         cerr << endl;
       }
     } else if (cmd == "pseudo") {
+	  std::chrono::time_point<std::chrono::system_clock> start, end;
+	  start = std::chrono::system_clock::now();
       if (argc==2) {
         usagePseudo();
         return 0;
@@ -1376,6 +1397,9 @@ int main(int argc, char *argv[]) {
 
         cerr << endl;
       }
+	  end = std::chrono::system_clock::now();
+	  std::chrono::duration<double> elapsed_seconds = end - start;
+	  std::cerr << "elapsed time: " << elapsed_seconds.count() << "sec" << std::endl;
     } else if (cmd == "h5dump") {
 
       if (argc == 2) {

@@ -23,7 +23,7 @@ void printVector(const vector<int>& v) {
 
 void printHisto(const unordered_map<int,int>& m, const string& header) {
   cout << header << "\n";
-  int mn = std::numeric_limits<int>::max();
+  int mn = (std::numeric_limits<int>::max)();
   int mx = 0;
 
   for (auto kv : m) {

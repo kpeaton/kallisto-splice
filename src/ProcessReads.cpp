@@ -166,7 +166,7 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
   // for each file
   std::cerr << "[quant] finding pseudoalignments for the reads ..."; std::cerr.flush();
 
-  if (opt.pseudobam) {
+  if ((opt.pseudobam) && (opt.exon_coords_file.empty())) {
     index.writePseudoBamHeader(std::cout);
   }
 
@@ -237,7 +237,7 @@ void MasterProcessor::processReads() {
     while (id < num_ids) {
       // TODO: put in thread pool
       workers.clear();
-      int nt = std::min(opt.threads, (num_ids - id));
+      int nt = (std::min)(opt.threads, (num_ids - id));
       for (int i = 0; i < nt; i++,id++) {
         workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, id)));
       }
@@ -708,12 +708,12 @@ void ReadProcessor::processBuffer() {
         outputPseudoBam(index, u,
           s1, names[i-1].first, quals[i-1].first, l1, names[i-1].second, v1,
           s2, names[i].first, quals[i].first, l2, names[i].second, v2,
-          paired);
+          paired, mp.exon_map);
       } else {
         outputPseudoBam(index, u,
           s1, names[i].first, quals[i].first, l1, names[i].second, v1,
           nullptr, nullptr, nullptr, 0, 0, v2,
-          paired);
+          paired, mp.exon_map);
       }
     }
 

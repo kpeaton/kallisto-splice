@@ -37,6 +37,7 @@ struct ProgramOptions {
   enum class StrandType {None, FR, RF};
   StrandType strand;
   bool umi;
+  std::string exon_coords_file;
   std::string gfa; // used for inspect
 
 ProgramOptions() :

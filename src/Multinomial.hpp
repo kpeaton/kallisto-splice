@@ -9,7 +9,8 @@ class Multinomial {
         Multinomial(const std::vector<int>& counts, size_t seed = 42) :
             counts_(counts),
             gen_(seed),
-            dd_(counts_.begin(), counts_.end()),
+            //dd_(counts_.begin(), counts_.end()),  //WILL NEED TO FIX AT SOME POINT!!! See: https://connect.microsoft.com/VisualStudio/feedback/details/976256
+			dd_(),
             n_(0)
         {
             for (auto c : counts_) {
