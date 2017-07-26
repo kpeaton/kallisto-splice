@@ -5,17 +5,13 @@
 #include <vector>
 #include <sys/stat.h>
 #include <getopt.h>
- #include <thread>
+#include <thread>
 #include <time.h>
-
 #include <cstdio>
-
 #include <zlib.h>
-
 #include <chrono>
-#if defined(WIN32) || defined(WIN64)
+
 #include "wincompat.h"
-#endif
 
 #include "common.h"
 #include "ProcessReads.h"
@@ -480,8 +476,8 @@ bool CheckOptionsIndex(ProgramOptions& opt) {
 
     for (auto& fasta : opt.transfasta) {
       // we want to generate the index, check k, index and transfasta
-      struct stat stFileInfo;
-      auto intStat = stat(fasta.c_str(), &stFileInfo);
+      filestat stFileInfo;
+      auto intStat = filestat(fasta.c_str(), &stFileInfo);
       if (intStat != 0) {
         cerr << "Error: FASTA file not found " << fasta << endl;
         ret = false;
@@ -508,8 +504,8 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
       cerr << ERROR_STR << " kallisto index file missing" << endl;
       ret = false;
     } else {
-      struct stat stFileInfo;
-      auto intStat = stat(opt.index.c_str(), &stFileInfo);
+      filestat stFileInfo;
+      auto intStat = filestat(opt.index.c_str(), &stFileInfo);
       if (intStat != 0) {
         cerr << ERROR_STR << " kallisto index file not found " << opt.index << endl;
         ret = false;
@@ -523,9 +519,9 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
       cerr << ERROR_STR << " Missing read files" << endl;
       ret = false;
     } else {
-      struct stat stFileInfo;
+      filestat stFileInfo;
       for (auto& fn : opt.files) {
-        auto intStat = stat(fn.c_str(), &stFileInfo);
+        auto intStat = filestat(fn.c_str(), &stFileInfo);
         if (intStat != 0) {
           cerr << ERROR_STR << " file not found " << fn << endl;
           ret = false;
@@ -595,8 +591,8 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
     cerr << "Error: need to specify output directory " << opt.output << endl;
     ret = false;
   } else {
-    struct stat stFileInfo;
-    auto intStat = stat(opt.output.c_str(), &stFileInfo);
+    filestat stFileInfo;
+    auto intStat = filestat(opt.output.c_str(), &stFileInfo);
     if (intStat == 0) {
       // file/dir exits
       if (!S_ISDIR(stFileInfo.st_mode)) {
@@ -604,16 +600,16 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
         ret = false;
       } else if (emonly) {
         // check for directory/counts.txt
-        struct stat stCountInfo;
-        auto intcountstat = stat((opt.output + "/counts.txt" ).c_str(), &stCountInfo);
+        filestat stCountInfo;
+        auto intcountstat = filestat((opt.output + "/counts.txt" ).c_str(), &stCountInfo);
         if (intcountstat != 0) {
           cerr << "Error: could not find file " << opt.output << "/counts.txt" << endl;
           ret = false;
         }
 
         // check for directory/index.saved
-        struct stat stIndexInfo;
-        auto intindexstat = stat((opt.output + "/index.saved").c_str(), &stIndexInfo);
+        filestat stIndexInfo;
+        auto intindexstat = filestat((opt.output + "/index.saved").c_str(), &stIndexInfo);
         if (intindexstat != 0) {
           cerr << "Error: could not find index " << opt.output << "/index.saved" << endl;
           ret = false;
@@ -669,8 +665,8 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
     cerr << ERROR_STR << " kallisto index file missing" << endl;
     ret = false;
   } else {
-    struct stat stFileInfo;
-    auto intStat = stat(opt.index.c_str(), &stFileInfo);
+    filestat stFileInfo;
+    auto intStat = filestat(opt.index.c_str(), &stFileInfo);
     if (intStat != 0) {
       cerr << ERROR_STR << " kallisto index file not found " << opt.index << endl;
       ret = false;
@@ -688,9 +684,9 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
       cerr << ERROR_STR << " Missing read files" << endl;
       ret = false;
     } else {
-      struct stat stFileInfo;      
+      filestat stFileInfo;      
       for (auto& fn : opt.files) {        
-        auto intStat = stat(fn.c_str(), &stFileInfo);
+        auto intStat = filestat(fn.c_str(), &stFileInfo);
         if (intStat != 0) {
           cerr << ERROR_STR << " file not found " << fn << endl;
           ret = false;
@@ -704,8 +700,8 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
     } else {
       // check for batch files
       if (opt.batch_mode) {
-        struct stat stFileInfo;
-        auto intstat = stat(opt.batch_file_name.c_str(), &stFileInfo);
+        filestat stFileInfo;
+        auto intstat = filestat(opt.batch_file_name.c_str(), &stFileInfo);
         if (intstat != 0) {
           cerr << ERROR_STR << " file not found " << opt.batch_file_name << endl;
           ret = false;
@@ -727,7 +723,7 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
           if (opt.single_end && !opt.umi) {
             ss >> f1;
             opt.batch_files.push_back({f1});
-            intstat = stat(f1.c_str(), &stFileInfo);
+            intstat = filestat(f1.c_str(), &stFileInfo);
             if (intstat != 0) {
               cerr << ERROR_STR << " file not found " << f1 << endl;
               ret = false;
@@ -740,12 +736,12 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
               opt.umi_files.push_back(f1);
               opt.batch_files.push_back({f2});
             }
-            intstat = stat(f1.c_str(), &stFileInfo);
+            intstat = filestat(f1.c_str(), &stFileInfo);
             if (intstat != 0) {
               cerr << ERROR_STR << " file not found " << f1 << endl;
               ret = false;
             }
-            intstat = stat(f2.c_str(), &stFileInfo);
+            intstat = filestat(f2.c_str(), &stFileInfo);
             if (intstat != 0) {
               cerr << ERROR_STR << " file not found " << f2 << endl;
               ret = false;
@@ -814,8 +810,8 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
     cerr << "Error: need to specify output directory " << opt.output << endl;
     ret = false;
   } else {
-    struct stat stFileInfo;
-    auto intStat = stat(opt.output.c_str(), &stFileInfo);
+    filestat stFileInfo;
+    auto intStat = filestat(opt.output.c_str(), &stFileInfo);
     if (intStat == 0) {
       // file/dir exits
       if (!S_ISDIR(stFileInfo.st_mode)) {
@@ -848,8 +844,8 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
 
   // check for exon_coords_file
   if (!opt.exon_coords_file.empty()) {
-	  struct stat stFileInfo;
-	  auto intStat = stat(opt.exon_coords_file.c_str(), &stFileInfo);
+	  filestat stFileInfo;
+	  auto intStat = filestat(opt.exon_coords_file.c_str(), &stFileInfo);
 	  if (intStat != 0) {
 		  cerr << ERROR_STR << " kallisto exon coordinate file not found " << opt.exon_coords_file << endl;
 		  ret = false;
@@ -868,8 +864,8 @@ bool CheckOptionsInspect(ProgramOptions& opt) {
     cerr << "Error: kallisto index file missing" << endl;
     ret = false;
   } else {
-    struct stat stFileInfo;
-    auto intStat = stat(opt.index.c_str(), &stFileInfo);
+    filestat stFileInfo;
+    auto intStat = filestat(opt.index.c_str(), &stFileInfo);
     if (intStat != 0) {
       cerr << "Error: kallisto index file not found " << opt.index << endl;
       ret = false;
@@ -886,8 +882,8 @@ bool CheckOptionsH5Dump(ProgramOptions& opt) {
       cerr << "Error: You must specify an output directory." << endl;
       ret = false;
     } else {
-      struct stat stFileInfo;
-      auto intStat = stat(opt.output.c_str(), &stFileInfo);
+      filestat stFileInfo;
+      auto intStat = filestat(opt.output.c_str(), &stFileInfo);
       if (intStat == 0) {
         // file/dir exits
         if (!S_ISDIR(stFileInfo.st_mode)) {
@@ -913,9 +909,9 @@ bool CheckOptionsH5Dump(ProgramOptions& opt) {
     cerr << "Error: Please specify only one H5 file" << endl;
     ret = false;
   } else {
-    struct stat stFileInfo;
+    filestat stFileInfo;
     for (auto& fn : opt.files) {
-      auto intStat = stat(fn.c_str(), &stFileInfo);
+      auto intStat = filestat(fn.c_str(), &stFileInfo);
       if (intStat != 0) {
         cerr << "Error: H5 file not found " << fn << endl;
         ret = false;
