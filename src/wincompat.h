@@ -14,19 +14,17 @@ typedef unsigned int uint;
 // Support for differences in mkdir function between Linux and Windows
 #define mkdir(A, B) _mkdir(A)
 
-// Copied from linux libc sys/stat.h:
+// Copied from linux libc sys/stat.h
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 
 // Support for getting file stats
-
 typedef struct _stat64 filestat;
 #define filestat(A, B) _stati64(A, B)
 
 #else
 
 // Support for getting file stats
-
 typedef struct stat filestat;
 #define filestat(A, B) stat(A, B)
 

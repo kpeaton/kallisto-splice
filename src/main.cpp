@@ -5,6 +5,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <getopt.h>
+#include <pthread.h>
 #include <thread>
 #include <time.h>
 #include <cstdio>
@@ -23,7 +24,6 @@
 #include "Inspect.h"
 #include "Bootstrap.h"
 #include "H5Writer.h"
-
 
 //#define ERROR_STR "\033[1mError:\033[0m"
 #define ERROR_STR "Error:"
@@ -320,6 +320,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int strand_flag = 0;
   int pbam_flag = 0;
   int umi_flag = 0;
+  int sbam_flag = 0;
 
   const char *opt_string = "t:i:l:s:o:b:e:";
   static struct option long_options[] = {
@@ -328,6 +329,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"single", no_argument, &single_flag, 1},
     //{"strand-specific", no_argument, &strand_flag, 1},
     {"pseudobam", no_argument, &pbam_flag, 1},
+	{"sortedbam", no_argument, &sbam_flag, 1},
     {"umi", no_argument, &umi_flag, 'u'},
     {"batch", required_argument, 0, 'b'},
     // short args
@@ -410,6 +412,9 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     opt.pseudobam = true;
   }
   
+  if (sbam_flag) {
+	opt.sortedbam = true;
+  }
   
 }
 
@@ -1023,6 +1028,7 @@ void usagePseudo(bool valid_input = true) {
        << "                              (default: value is estimated from the input data)" << endl
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
        << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
+	   << "    --sortedbam               Output a sorted BAM format to stdout" << endl
 	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl;
 
 }

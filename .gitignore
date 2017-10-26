@@ -14,14 +14,16 @@ test
 builds
 Debug
 Release
-x64
+./x64
 *.zip
 kallisto*
 src/kallisto
+src/unused
 src/*.a
 src/pthread.h
 src/sched.h
 src/semaphore.h
+src/htslib/unused
 CTestTestfile.cmake
 *~
 *.orig

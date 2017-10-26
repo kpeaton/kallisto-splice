@@ -166,16 +166,24 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
   // for each file
   std::cerr << "[quant] finding pseudoalignments for the reads ..."; std::cerr.flush();
 
-  if ((opt.pseudobam) && (opt.exon_coords_file.empty())) {
-    index.writePseudoBamHeader(std::cout);
-  }
-
   MasterProcessor MP(index, opt, tc);
   MP.processReads();
   numreads = MP.numreads;
   nummapped = MP.nummapped;
 
   std::cerr << " done" << std::endl;
+
+  // Output sorted BAM
+
+  if (MP.exon_output.sortedbam) {
+
+	  std::cerr << "sorting bam output ..."; std::cerr.flush();
+
+	  MP.exon_output.outputSortedBam();
+
+	  std::cerr << " done" << std::endl;
+
+  }
 
   //std::cout << "betterCount = " << betterCount << ", out of betterCand = " << betterCand << std::endl;
 
@@ -708,12 +716,12 @@ void ReadProcessor::processBuffer() {
         outputPseudoBam(index, u,
           s1, names[i-1].first, quals[i-1].first, l1, names[i-1].second, v1,
           s2, names[i].first, quals[i].first, l2, names[i].second, v2,
-          paired, mp.exon_map);
+          paired, mp.exon_output);
       } else {
-        outputPseudoBam(index, u,
-          s1, names[i].first, quals[i].first, l1, names[i].second, v1,
-          nullptr, nullptr, nullptr, 0, 0, v2,
-          paired, mp.exon_map);
+		  outputPseudoBam(index, u,
+			  s1, names[i].first, quals[i].first, l1, names[i].second, v1,
+			  nullptr, nullptr, nullptr, 0, 0, v2,
+			  paired, mp.exon_output);
       }
     }
 

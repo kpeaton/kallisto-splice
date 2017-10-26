@@ -5,13 +5,12 @@
 void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
     const char *s1, const char *n1, const char *q1, int slen1, int nlen1, const std::vector<std::pair<KmerEntry,int>>& v1,
     const char *s2, const char *n2, const char *q2, int slen2, int nlen2, const std::vector<std::pair<KmerEntry,int>>& v2,
-	bool paired, const ExonMap& exmap) {
+	bool paired, EnhancedOutput &exon_output) {
 
   static char buf1[32768];
   static char buf2[32768];
   static char cig_[1000];
   char *cig = &cig_[0];
-
 
   if (nlen1 > 2 && n1[nlen1-2] == '/') {
     ((char*)n1)[nlen1-2] = 0;
@@ -23,6 +22,9 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
   if (u.empty()) {
     // no mapping
+	if (!exon_output.exon_map.empty() && !exon_output.outputunmapped) {
+		return;
+	}
     if (paired) {
       printf("%s\t77\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n1,s1,q1);
       printf("%s\t141\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n2,s2,q2);
@@ -86,7 +88,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
       // output pseudoalignments for read 1
       bool firstTr = true;
-	  std::set<std::string> gene_list;
+	  exon_output.gene_list.clear();
       for (auto tr : u) {
         int f1 = flag1;
         std::pair<int, bool> x1 {-1,true};
@@ -123,214 +125,44 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
           tlen += (tlen>0) ? 1 : -1;
         }
 
+		bool mapped = (f1 & 0x04) == 0;
+		int flag = f1 & 0xFFFF;
 		int posread = (f1 & 0x10) ? (x1.first - slen1 + 1) : x1.first;
 		int posmate = (f1 & 0x20) ? (x2.first - slen2 + 1) : x2.first;
-		int strand = 0;
-		const char * trans_name = index.target_names_[tr].c_str();
-		if (exmap.empty()) {  // Default calculations when exon coordinates map is empty
+		std::string ref_name = index.target_names_[tr];
+		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
+		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
+		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
 
-			getCIGARandSoftClip(cig, bool(f1 & 0x10), (f1 & 0x04) == 0, posread, posmate, slen1, index.target_lens_[tr]);
+			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
+
+			printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
 
 		} else {  // Convert to genome coordinates and build CIGAR string
 
-			ExonMap::const_iterator map_entry = exmap.find(trans_name);
-			if (map_entry == exmap.end()) {
-				std::cerr << "Transcript name could not be found in exon coordinate file: " << trans_name << std::endl;
-				exit(1);
-			}
+			int strand = 0;
 
-			const char * gene_name = std::get<0>(map_entry->second).c_str();
-			if (gene_list.find(gene_name) == gene_list.end()) {
-				gene_list.emplace(gene_name);
-			} else {
+			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen1, slen2)) {
 				continue;
 			}
 
-			trans_name = std::get<1>(map_entry->second).c_str();
-			strand = (std::get<2>(map_entry->second)[0][2] < 0) ? -1 : 1;  // Apply elsewhere!
-			
-			std::string cig_string;
-			int read_len = slen1;
-			int mate_len = slen2;
-			int read_offset = 0;
-			int mate_offset = 0;
-			for (auto &span : std::get<2>(map_entry->second)) {
+			if (exon_output.sortedbam) {
 
-				if (read_len != 0) {  // Not done mapping coordinates for read
-					if (read_len != slen1) {  // In the process of mapping coordinates for read
+				exon_output.outputBamAlignment(ref_name, posread, flag, slen1, posmate, tlen, n1, seq, qual, nmap, strand);
 
-						if (span[2] < 0) {  // Negative strand               Use trsense from findPosition instead??!!
-
-							sprintf(cig, "%dN", span[2] - span[1] + span[0] - 1 - read_offset);
-							cig_string.insert(0, cig);
-							read_offset = span[1] - span[0] + 1;
-							if (read_len > read_offset) {
-								sprintf(cig, "%dM", read_offset);
-								cig_string.insert(0, cig);
-								read_len -= read_offset;
-								read_offset = span[2];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string.insert(0, cig);
-								posread = read_offset - span[2] - read_len;
-								read_len = 0;
-							}
-
-						} else {  // Positive strand
-
-							sprintf(cig, "%dN", span[2] - read_offset - 1);
-							cig_string += cig;
-							read_offset = span[1] - span[0] + 1;
-							if (read_len > read_offset){
-								sprintf(cig, "%dM", read_offset);
-								cig_string += cig;
-								read_len -= read_offset;
-								read_offset += span[2] - 1;
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string += cig;
-								read_len = 0;
-							}
-
-						}
-
-					} else if (posread <= span[1]) {  // Begin mapping coordinates for read
-						
-						if (posread < span[0]) {
-							read_offset = span[0] - posread;
-							sprintf(cig, "%dS", read_offset);
-							cig_string = cig;
-							read_len -= read_offset;
-						}
-
-						if (span[2] < 0) {  // Negative strand
-
-							if ((posread + slen1 - 1) > span[1]) {
-								read_offset = span[1] - posread - read_offset + 1;
-								sprintf(cig, "%dM", read_offset);
-								cig_string.insert(0, cig);
-								read_len -= read_offset;
-								read_offset = span[2];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string.insert(0, cig);
-								read_len = 0;
-								posread = span[1] - span[2] - posread - slen1 + 1;
-							}
-
-						} else {  // Positive strand
-
-							if ((posread + slen1 - 1) > span[1]) {
-								read_offset = span[1] - posread - read_offset + 1;
-								sprintf(cig, "%dM", read_offset);
-								cig_string += cig;
-								read_len -= read_offset;
-								read_offset = span[2] + span[1] - span[0];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string += cig;
-								read_len = 0;
-							}
-							posread += span[2] - span[0];
-
-						}
-					}
-				}
-
-				if (mate_len != 0) {  // Not done mapping coordinates for mate
-					if (mate_len != slen2) {  // In the process of mapping coordinates for mate
-
-						if (span[2] < 0) {  // Negative strand
-
-							mate_offset = span[1] - span[0] + 1;
-							if (mate_len > mate_offset) {
-								mate_len -= mate_offset;
-								mate_offset = span[2];
-							} else {
-								posmate = mate_offset - span[2] - mate_len;
-								mate_len = 0;
-							}
-
-						} else {  // Positive strand
-
-							mate_offset = span[1] - span[0] + 1;
-							if (mate_len > mate_offset){
-								mate_len -= mate_offset;
-								mate_offset += span[2] - 1;
-							} else {
-								mate_len = 0;
-							}
-
-						}
-
-					} else if (posmate <= span[1]) {  // Begin mapping coordinates for mate
-
-						if (posmate < span[0]) {
-							mate_offset = span[0] - posmate;
-							mate_len -= mate_offset;
-						}
-
-						if (span[2] < 0) {  // Negative strand
-
-							if ((posmate + slen2 - 1) > span[1]) {
-								mate_len -= span[1] - posmate - mate_offset + 1;
-								mate_offset = span[2];
-							} else {
-								mate_len = 0;
-								posmate = span[1] - span[2] - posmate - slen2 + 1;
-							}
-
-						} else {  // Positive strand
-
-							if ((posmate + slen2 - 1) > span[1]) {
-								mate_len -= span[1] - posmate - mate_offset + 1;
-								mate_offset = span[2] + span[1] - span[0];
-							} else {
-								mate_len = 0;
-							}
-							posmate += span[2] - span[0];
-
-						}
-
-					}
-				}
-
-				if ((read_len == 0) && (mate_len == 0)) {  // Both have been mapped
-					break;
-				}
-
-			}
-
-			if (read_len != 0) {  // Account for read overhangs
-				if (read_offset < 0) {  // Negative strand
-					sprintf(cig, "%dS", read_len);
-					cig_string.insert(0, cig);
-					posread = -read_offset - read_len;
-				} else {  // Positive strand
-					sprintf(cig, "%dS", read_len);
-					cig_string += cig;
-				}
-			}
-
-			if ((mate_len != 0) && (mate_offset < 0)) {  // Account for mate overhangs on negative strand
-				posmate = -mate_offset - mate_len;
-			}
-
-			if ((f1 & 0x04) == 0) {
-				sprintf(cig, "%s", cig_string.c_str());
 			} else {
-				sprintf(cig, "*");
+
+				printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+				if (strand == 0) {
+					printf("\n");
+				} else if (strand < 0) {
+					printf("\tXS:A:-\n");
+				} else {
+					printf("\tXS:A:+\n");
+				}
+
 			}
 
-		}
-
-        printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n1, f1 & 0xFFFF, trans_name, posread, cig, posmate, tlen, (f1 & 0x10) ? &buf1[0] : s1, (f1 & 0x10) ? &buf2[0] : q1, nmap);
-		if (strand == 0) {
-			printf("\n");
-		} else if (strand < 0) {
-			printf("\tXS:A:-\n");
-		} else {
-			printf("\tXS:A:+\n");
 		}
 
       }
@@ -338,7 +170,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
       revset = false;
       // output pseudoalignments for read 2
       firstTr = true;
-	  gene_list.clear();
+	  exon_output.gene_list.clear();
       for (auto tr : u) {
         int f2 = flag2;
         std::pair<int, bool> x1 {-1,true};
@@ -377,214 +209,44 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
           tlen += (tlen > 0) ? 1 : -1;
         }
 
+		bool mapped = (f2 & 0x04) == 0;
+		int flag = f2 & 0xFFFF;
 		int posread = (f2 & 0x10) ? (x2.first - slen2 + 1) : x2.first;
 		int posmate = (f2 & 0x20) ? (x1.first - slen1 + 1) : x1.first;
-		int strand = 0;
-		const char * trans_name = index.target_names_[tr].c_str();
-		if (exmap.empty()) {  // Default calculations when exon coordinates map is empty
+		std::string ref_name = index.target_names_[tr];
+		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
+		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
+		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
 
-			getCIGARandSoftClip(cig, bool(f2 & 0x10), (f2 & 0x04) == 0, posread, posmate, slen2, index.target_lens_[tr]);
+			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
+
+			printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
 
 		} else {  // Convert to genome coordinates and build CIGAR string
 
-			ExonMap::const_iterator map_entry = exmap.find(trans_name);
-			if (map_entry == exmap.end()) {
-				std::cerr << "Transcript name could not be found in exon coordinate file: " << trans_name << std::endl;
-				exit(1);
-			}
+			int strand = 0;
 
-			const char * gene_name = std::get<0>(map_entry->second).c_str();
-			if (gene_list.find(gene_name) == gene_list.end()) {
-				gene_list.emplace(gene_name);
-			} else {
+			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen2, slen1)) {
 				continue;
 			}
 
-			trans_name = std::get<1>(map_entry->second).c_str();
-			strand = (std::get<2>(map_entry->second)[0][2] < 0) ? -1 : 1;
+			if (exon_output.sortedbam) {
 
-			std::string cig_string;
-			int read_len = slen2;
-			int mate_len = slen1;
-			int read_offset = 0;
-			int mate_offset = 0;
-			for (auto &span : std::get<2>(map_entry->second)) {
+				exon_output.outputBamAlignment(ref_name, posread, flag, slen2, posmate, tlen, n2, seq, qual, nmap, strand);
 
-				if (read_len != 0) {  // Not done mapping coordinates for read
-					if (read_len != slen2) {  // In the process of mapping coordinates for read
-
-						if (span[2] < 0) {  // Negative strand
-
-							sprintf(cig, "%dN", span[2] - span[1] + span[0] - 1 - read_offset);
-							cig_string.insert(0, cig);
-							read_offset = span[1] - span[0] + 1;
-							if (read_len > read_offset) {
-								sprintf(cig, "%dM", read_offset);
-								cig_string.insert(0, cig);
-								read_len -= read_offset;
-								read_offset = span[2];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string.insert(0, cig);
-								posread = read_offset - span[2] - read_len;
-								read_len = 0;
-							}
-
-						} else {  // Positive strand
-
-							sprintf(cig, "%dN", span[2] - read_offset - 1);
-							cig_string += cig;
-							read_offset = span[1] - span[0] + 1;
-							if (read_len > read_offset){
-								sprintf(cig, "%dM", read_offset);
-								cig_string += cig;
-								read_len -= read_offset;
-								read_offset += span[2] - 1;
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string += cig;
-								read_len = 0;
-							}
-
-						}
-
-					} else if (posread <= span[1]) {  // Begin mapping coordinates for read
-
-						if (posread < span[0]) {
-							read_offset = span[0] - posread;
-							sprintf(cig, "%dS", read_offset);
-							cig_string = cig;
-							read_len -= read_offset;
-						}
-
-						if (span[2] < 0) {  // Negative strand
-
-							if ((posread + slen2 - 1) > span[1]) {
-								read_offset = span[1] - posread - read_offset + 1;
-								sprintf(cig, "%dM", read_offset);
-								cig_string.insert(0, cig);
-								read_len -= read_offset;
-								read_offset = span[2];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string.insert(0, cig);
-								read_len = 0;
-								posread = span[1] - span[2] - posread - slen2 + 1;
-							}
-
-						} else {  // Positive strand
-
-							if ((posread + slen2 - 1) > span[1]) {
-								read_offset = span[1] - posread - read_offset + 1;
-								sprintf(cig, "%dM", read_offset);
-								cig_string += cig;
-								read_len -= read_offset;
-								read_offset = span[2] + span[1] - span[0];
-							} else {
-								sprintf(cig, "%dM", read_len);
-								cig_string += cig;
-								read_len = 0;
-							}
-							posread += span[2] - span[0];
-
-						}
-					}
-				}
-
-				if (mate_len != 0) {  // Not done mapping coordinates for mate
-					if (mate_len != slen1) {  // In the process of mapping coordinates for mate
-
-						if (span[2] < 0) {  // Negative strand
-
-							mate_offset = span[1] - span[0] + 1;
-							if (mate_len > mate_offset) {
-								mate_len -= mate_offset;
-								mate_offset = span[2];
-							} else {
-								posmate = mate_offset - span[2] - mate_len;
-								mate_len = 0;
-							}
-
-						} else {  // Positive strand
-
-							mate_offset = span[1] - span[0] + 1;
-							if (mate_len > mate_offset){
-								mate_len -= mate_offset;
-								mate_offset += span[2] - 1;
-							} else {
-								mate_len = 0;
-							}
-
-						}
-
-					} else if (posmate <= span[1]) {  // Begin mapping coordinates for mate
-
-						if (posmate < span[0]) {
-							mate_offset = span[0] - posmate;
-							mate_len -= mate_offset;
-						}
-
-						if (span[2] < 0) {  // Negative strand
-
-							if ((posmate + slen1 - 1) > span[1]) {
-								mate_len -= span[1] - posmate - mate_offset + 1;
-								mate_offset = span[2];
-							} else {
-								mate_len = 0;
-								posmate = span[1] - span[2] - posmate - slen1 + 1;
-							}
-
-						} else {  // Positive strand
-
-							if ((posmate + slen1 - 1) > span[1]) {
-								mate_len -= span[1] - posmate - mate_offset + 1;
-								mate_offset = span[2] + span[1] - span[0];
-							} else {
-								mate_len = 0;
-							}
-							posmate += span[2] - span[0];
-
-						}
-
-					}
-				}
-
-				if ((read_len == 0) && (mate_len == 0)) {  // Both have been mapped
-					break;
-				}
-				
-			}
-
-			if (read_len != 0) {  // Account for read overhangs
-				if (read_offset < 0) {  // Negative strand
-					sprintf(cig, "%dS", read_len);
-					cig_string.insert(0, cig);
-					posread = -read_offset - read_len;
-				} else {  // Positive strand
-					sprintf(cig, "%dS", read_len);
-					cig_string += cig;
-				}
-			}
-
-			if ((mate_len != 0) && (mate_offset < 0)) {  // Account for mate overhangs on negative strand
-				posmate = -mate_offset - mate_len;
-			}
-
-			if ((f2 & 0x04) == 0) {
-				sprintf(cig, "%s", cig_string.c_str());
 			} else {
-				sprintf(cig, "*");
+
+				printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n2, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+				if (strand == 0) {
+					printf("\n");
+				} else if (strand < 0) {
+					printf("\tXS:A:-\n");
+				} else {
+					printf("\tXS:A:+\n");
+				}
+
 			}
 
-		}
-
-        printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n2, f2 & 0xFFFF, trans_name, posread, cig, posmate, tlen, (f2 & 0x10) ? &buf1[0] : s2,  (f2 & 0x10) ? &buf2[0] : q2, nmap);
-		if (strand == 0) {
-			printf("\n");
-		} else if (strand < 0) {
-			printf("\tXS:A:-\n");
-		} else {
-			printf("\tXS:A:+\n");
 		}
 
       }
@@ -605,7 +267,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
       bool revset = false;
       bool firstTr = true;
-	  std::set<std::string> gene_list;
+	  exon_output.gene_list.clear();
       for (auto tr : u) {
         int f1 = 0;
         auto x1 = index.findPosition(tr, km1, val1, p1);
@@ -622,150 +284,44 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
         }
         firstTr = false;
 
+		bool mapped = (f1 & 0x04) == 0;
+		int flag = f1 & 0xFFFF;
 		int posread = (f1 & 0x10) ? (x1.first - slen1 + 1) : x1.first;
-		int strand = 0;
-		const char * trans_name = index.target_names_[tr].c_str();
-		if (exmap.empty()) {  // Default calculations when exon coordinates map is empty
+		int dummy = 1;
+		std::string ref_name = index.target_names_[tr];
+		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
+		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
+		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
 
-			int dummy = 1;
-			getCIGARandSoftClip(cig, bool(f1 & 0x10), (f1 & 0x04) == 0, posread, dummy, slen1, index.target_lens_[tr]);
+			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, dummy, slen1, index.target_lens_[tr]);
+
+			printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
 
 		} else {  // Convert to genome coordinates and build CIGAR string
 
-			ExonMap::const_iterator map_entry = exmap.find(trans_name);
-			if (map_entry == exmap.end()) {
-				std::cerr << "Transcript name could not be found in exon coordinate file: " << trans_name << std::endl;
-				exit(1);
-			}
+			int strand = 0;
 
-			const char * gene_name = std::get<0>(map_entry->second).c_str();
-			if (gene_list.find(gene_name) == gene_list.end()) {
-				gene_list.emplace(gene_name);
-			} else {
+			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, dummy, slen1, 0)) {
 				continue;
 			}
 
-			trans_name = std::get<1>(map_entry->second).c_str();
-			strand = (std::get<2>(map_entry->second)[0][2] < 0) ? -1 : 1;
+			if (exon_output.sortedbam) {
 
-			std::string cig_string;
-			int read_len = slen1;
-			int read_offset = 0;
-			for (auto &span : std::get<2>(map_entry->second)) {
+				exon_output.outputBamAlignment(ref_name, posread, flag, slen1, dummy, 0, n1, seq, qual, nmap, strand);
 
-				if (read_len != slen1) {  // In the process of mapping coordinates for read
-
-					if (span[2] < 0) {  // Negative strand
-
-						sprintf(cig, "%dN", span[2] - span[1] + span[0] - 1 - read_offset);
-						cig_string.insert(0, cig);
-						read_offset = span[1] - span[0] + 1;
-						if (read_len > read_offset) {
-							sprintf(cig, "%dM", read_offset);
-							cig_string.insert(0, cig);
-							read_len -= read_offset;
-							read_offset = span[2];
-						} else {
-							sprintf(cig, "%dM", read_len);
-							cig_string.insert(0, cig);
-							posread = read_offset - span[2] - read_len;
-							read_len = 0;
-							break;
-						}
-
-					} else {  // Positive strand
-
-						sprintf(cig, "%dN", span[2] - read_offset - 1);
-						cig_string += cig;
-						read_offset = span[1] - span[0] + 1;
-						if (read_len > read_offset){
-							sprintf(cig, "%dM", read_offset);
-							cig_string += cig;
-							read_len -= read_offset;
-							read_offset += span[2] - 1;
-						} else {
-							sprintf(cig, "%dM", read_len);
-							cig_string += cig;
-							read_len = 0;
-							break;
-						}
-
-					}
-
-				} else if (posread <= span[1]) {  // Begin mapping coordinates for read
-
-					if (posread < span[0]) {
-						read_offset = span[0] - posread;
-						sprintf(cig, "%dS", read_offset);
-						cig_string = cig;
-						read_len -= read_offset;
-					}
-
-					if (span[2] < 0) {  // Negative strand
-
-						if ((posread + slen1 - 1) > span[1]) {
-							read_offset = span[1] - posread - read_offset + 1;
-							sprintf(cig, "%dM", read_offset);
-							cig_string.insert(0, cig);
-							read_len -= read_offset;
-							read_offset = span[2];
-						} else {
-							sprintf(cig, "%dM", read_len);
-							cig_string.insert(0, cig);
-							posread = span[1] - span[2] - posread - slen1 + 1;
-							read_len = 0;
-							break;
-						}
-
-					} else {  // Positive strand
-
-						if ((posread + slen1 - 1) > span[1]) {
-							read_offset = span[1] - posread - read_offset + 1;
-							sprintf(cig, "%dM", read_offset);
-							cig_string += cig;
-							read_len -= read_offset;
-							read_offset = span[2] + span[1] - span[0];
-							posread += span[2] - span[0];
-						} else {
-							sprintf(cig, "%dM", read_len);
-							cig_string += cig;
-							posread += span[2] - span[0];
-							read_len = 0;
-							break;
-						}
-
-					}
-
-				}
-
-			}
-
-			if (read_len != 0) {  // Account for read overhangs
-				if (read_offset < 0) {  // Negative strand
-					sprintf(cig, "%dS", read_len);
-					cig_string.insert(0, cig);
-					posread = -read_offset - read_len;
-				} else {  // Positive strand
-					sprintf(cig, "%dS", read_len);
-					cig_string += cig;
-				}
-			}
-
-			if ((f1 & 0x04) == 0) {
-				sprintf(cig, "%s", cig_string.c_str());
 			} else {
-				sprintf(cig, "*");
+
+				printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
+				if (strand == 0) {
+					printf("\n");
+				} else if (strand < 0) {
+					printf("\tXS:A:-\n");
+				} else {
+					printf("\tXS:A:+\n");
+				}
+
 			}
 
-		}
-
-        printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d", n1, f1 & 0xFFFF, trans_name, posread, cig, 0, 0, (f1 & 0x10) ? &buf1[0] : s1, (f1 & 0x10) ? &buf2[0] : q1, nmap);
-		if (strand == 0) {
-			printf("\n");
-		} else if (strand < 0) {
-			printf("\tXS:A:-\n");
-		} else {
-			printf("\tXS:A:+\n");
 		}
 
       }

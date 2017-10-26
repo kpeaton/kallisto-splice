@@ -38,6 +38,7 @@ struct ProgramOptions {
   StrandType strand;
   bool umi;
   std::string exon_coords_file;
+  bool sortedbam;
   std::string gfa; // used for inspect
 
 ProgramOptions() :
@@ -61,7 +62,8 @@ ProgramOptions() :
   pseudobam(false),
   make_unique(false),
   strand(StrandType::None),
-  umi(false)
+  umi(false),
+  sortedbam(false)
   {}
 };
 
