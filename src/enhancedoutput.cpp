@@ -53,7 +53,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 			header_stream << "@HD\tVN:1.0\tSO:coordinate\n";
 
 			sort_dir = opt.output + "/sorting";
-			_mkdir(sort_dir.c_str());  // Move this to CheckOptions?
+			mkdir(sort_dir.c_str(), 0777);  // Move this to CheckOptions?
 
 			int refid = 0;
 			for (auto &entry : ref_seq_map) {
@@ -410,7 +410,7 @@ void EnhancedOutput::outputSortedBam()
 	#ifdef _WIN32
 		int result = _setmode(_fileno(stdout), _O_BINARY);
 	#endif
-	bam_stream = bgzf_dopen(_fileno(stdout), "w");
+	bam_stream = bgzf_dopen(fileno(stdout), "w");
 
 	//// ABORT!!!
 	//for (auto &entry : ref_seq_map) {
