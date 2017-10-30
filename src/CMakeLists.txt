@@ -1,5 +1,5 @@
-file(GLOB sources *.cpp)
-file(GLOB headers *.h *.hpp)
+file(GLOB sources *.cpp htslib/*.c htslib/cram/*.c)
+file(GLOB headers *.h *.hpp htslib/*.h htslib/htslib/*.h htslib/cram/*.h)
 
 list(REMOVE_ITEM sources main.cpp)
 
