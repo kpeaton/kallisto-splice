@@ -1,6 +1,11 @@
 file(GLOB sources *.cpp htslib/*.c htslib/cram/*.c)
 file(GLOB headers *.h *.hpp htslib/*.h htslib/htslib/*.h htslib/cram/*.h)
 
+if(MSVC)
+    set(sources ${sources} win64/dirent.c win64/dlfcn.c win64/times.c)
+    set(headers ${headers} win64/dirent.h win64/dlfcn.h win64/times.h)
+endif(MSVC)
+
 list(REMOVE_ITEM sources main.cpp)
 
 include_directories(../ext/)

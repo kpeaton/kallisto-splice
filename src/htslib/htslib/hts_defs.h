@@ -25,7 +25,11 @@ DEALINGS IN THE SOFTWARE.  */
 #ifndef HTSLIB_HTS_DEFS_H
 #define HTSLIB_HTS_DEFS_H
 
-#include "../dlfcn.h"
+#if defined(_MSC_VER)
+#include "../../win64/dlfcn.h"
+#else
+#include <dlfcn.h>
+#endif
 
 #ifdef __clang__
 #ifdef __has_attribute

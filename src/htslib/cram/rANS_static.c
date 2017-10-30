@@ -44,7 +44,7 @@
 #include <assert.h>
 #include <string.h>
 #ifdef _WIN32
-#include "../times.h"
+#include "../../win64/times.h"
 #else
 #include <sys/time.h>
 #endif

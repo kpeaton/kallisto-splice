@@ -19,6 +19,7 @@ To compile on a Windows 64-bit machine using Visual Studio 2013:
    - In "Linker" -> "Input": - Add pthreadVC2.lib to "Additional Dependencies"
 
  - The headers getopt.h, strings.h, and unistd.h included in src\win64 are drop-in replacements for Unix headers
+   (along with dirent.c/.h, dlfcn.c/.h, and times.c/.h, which have to be compiled as well)
 
    - In "VC++ Directories": - Add src\win64 to "Include Directories"
 

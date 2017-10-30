@@ -30,8 +30,8 @@ DEALINGS IN THE SOFTWARE.  */
 #include <errno.h>
 
 #if defined(_MSC_VER)
-#include "dirent.h"
-#include "dlfcn.h"
+#include "../win64/dirent.h"
+#include "../win64/dlfcn.h"
 #else
 #include <dirent.h>
 #include <dlfcn.h>
