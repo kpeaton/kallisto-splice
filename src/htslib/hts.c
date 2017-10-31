@@ -45,9 +45,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include "cram/cram.h"
 #include "htslib/hfile.h"
 #include "htslib/hts_endian.h"
-#ifndef _WIN32
-#include "version.h"
-#endif
+//#include "version.h"
 #include "hts_internal.h"
 #include "hfile_internal.h"
 
