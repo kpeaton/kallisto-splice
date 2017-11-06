@@ -13,8 +13,10 @@
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
+#include <chrono>
 
 #ifdef _WIN32
+#include <Windows.h>
 #include <fcntl.h>
 #include <io.h>
 #endif
@@ -55,10 +57,32 @@ extern "C" {
 //	{ 'N', 15 }, { 'n', 15 }
 //};
 
-// Typedefs
-typedef std::map<std::string, std::tuple<std::string, std::string, std::vector<std::vector<int>>>> ExonMap;
-
 // Classes
+
+class HighResTimer
+{
+public:
+	HighResTimer();
+
+#if defined(_MSC_VER)
+	typedef std::chrono::duration<double, std::ratio<1, 1000000>> duration;
+#else
+	typedef std::chrono::duration<double> duration;
+#endif
+
+	void resetTimer();
+	duration timeSinceReset();
+	duration timeSincePrevious();
+
+private:
+#if defined(_MSC_VER)
+	LARGE_INTEGER reset_time, previous_time, current_time, frequency;
+#else
+	typedef std::chrono::time_point<std::chrono::high_resolution_clock> timePoint;
+	timePoint reset_time, previous_time, current_time;
+#endif
+};
+
 class EnhancedOutput
 {
 public:
@@ -66,6 +90,7 @@ public:
 	EnhancedOutput();
 
 	// Exon coordinate map
+	typedef std::map<std::string, std::tuple<std::string, std::string, std::vector<std::vector<int>>>> ExonMap;
 	ExonMap exon_map;
 
 	// SAM/BAM output data
@@ -81,6 +106,9 @@ public:
 	std::vector<uint> bam_cigar;
 	uint cigar_len;
 	char outBamBuffer[MAX_BAM_ALIGN_SIZE];
+
+	// Timing variables
+	HighResTimer::duration pre_sort_time, sort_time, post_sort_time;
 
 	bool getSamData(std::string &ref_name, char *cig, int& strand, bool mapped, int &posread, int &posmate, int slen1, int slen2);
 	void outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, const char *seq, const char *qual, int nmap, int strand);
@@ -98,6 +126,7 @@ public:
 	std::string const& operator[](std::size_t index) const;
 	std::size_t size() const;
 	void readNextRow(std::istream& str);
+
 private:
 	std::vector<std::string> m_data;
 };

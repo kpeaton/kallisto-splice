@@ -183,6 +183,10 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 
 	  std::cerr << " done" << std::endl;
 
+	  std::cerr << "pre sort time: " << MP.exon_output.pre_sort_time.count() << " sec" << std::endl;
+	  std::cerr << "sort time: " << MP.exon_output.sort_time.count() << " sec" << std::endl;
+	  std::cerr << "post sort time: " << MP.exon_output.post_sort_time.count() << " sec" << std::endl;
+
   }
 
   //std::cout << "betterCount = " << betterCount << ", out of betterCand = " << betterCand << std::endl;

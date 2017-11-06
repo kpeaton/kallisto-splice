@@ -1,7 +1,51 @@
 #include "enhancedoutput.h"
 
+HighResTimer::HighResTimer()
+{
+#if defined(_MSC_VER)
+	QueryPerformanceFrequency(&frequency);
+#endif
+	resetTimer();
+}
+
+void HighResTimer::resetTimer()
+{
+#if defined(_MSC_VER)
+	QueryPerformanceCounter(&reset_time);
+#else
+	reset_time = std::chrono::high_resolution_clock::now();
+#endif
+	previous_time = reset_time;
+}
+
+HighResTimer::duration HighResTimer::timeSinceReset()
+{
+#if defined(_MSC_VER)
+	QueryPerformanceCounter(&current_time);
+	duration elapsed = (duration)((current_time.QuadPart - reset_time.QuadPart) * 1000000) / frequency.QuadPart;
+#else
+	current_time = std::chrono::high_resolution_clock::now();
+	duration elapsed = current_time - reset_time;
+#endif
+	previous_time = current_time;
+	return elapsed;
+}
+
+HighResTimer::duration HighResTimer::timeSincePrevious()
+{
+#if defined(_MSC_VER)
+	QueryPerformanceCounter(&current_time);
+	duration elapsed = (duration)((current_time.QuadPart - previous_time.QuadPart) * 1000000) / frequency.QuadPart;
+#else
+	current_time = std::chrono::high_resolution_clock::now();
+	duration elapsed = current_time - previous_time;
+#endif
+	previous_time = current_time;
+	return elapsed;
+}
+
 EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
-	: sortedbam(opt.sortedbam), outputunmapped(false)
+	: sortedbam(opt.sortedbam), outputunmapped(false), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 	if ((opt.pseudobam) && ~(opt.exon_coords_file.empty())) {
 
@@ -83,7 +127,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 }
 
 EnhancedOutput::EnhancedOutput()
-	: sortedbam(false), outputunmapped(false)
+	: sortedbam(false), outputunmapped(false), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 }
 
@@ -397,10 +441,12 @@ void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int f
 	// Output to sorting file
 	sort_file_map[ref_name]->write(outBamBuffer, n_bytes);
 	ref_seq_map[ref_name][2]++; // Combine with sort_file_map?
+
 }
 
 void EnhancedOutput::outputSortedBam()
 {
+	HighResTimer timer;
 	std::fstream *sort_file;
 	char *align_buffer;
 	uint *sort_buffer;
@@ -450,9 +496,11 @@ void EnhancedOutput::outputSortedBam()
 	align_buffer = new char[max_file_size+1];
 	sort_buffer = new uint[max_n_align * 2];
 
+	pre_sort_time += timer.timeSinceReset();
 	// Sort alignments for each sorting file
 	for (auto &entry : ref_seq_map) {
 
+		timer.resetTimer();
 		// Get file stream
 		sort_file = sort_file_map[entry.first];
 		uint n_align = entry.second[2];
@@ -480,14 +528,17 @@ void EnhancedOutput::outputSortedBam()
 			position += buffer[0] + sizeof(uint);
 		}
 
+		pre_sort_time += timer.timeSinceReset();
 		// Sort by genomic position
 		qsort((void*) sort_buffer, n_align, sizeof(uint) * 2, funCompareArrays<uint, 2>);
 
+		sort_time += timer.timeSincePrevious();
 		// Output sorted alignments
 		for (uint i = 0; i < n_align; i++) {
 			char *buffer = align_buffer + sort_buffer[i * 2 + 1];
 			bgzf_write(bam_stream, buffer, *((uint*)buffer) + sizeof(uint));
 		}
+		post_sort_time += timer.timeSincePrevious();
 
 	}
 

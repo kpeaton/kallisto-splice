@@ -1401,7 +1401,7 @@ int main(int argc, char *argv[]) {
       }
 	  end = std::chrono::system_clock::now();
 	  std::chrono::duration<double> elapsed_seconds = end - start;
-	  std::cerr << "elapsed time: " << elapsed_seconds.count() << "sec" << std::endl;
+	  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
     } else if (cmd == "h5dump") {
 
       if (argc == 2) {
