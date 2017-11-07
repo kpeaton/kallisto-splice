@@ -22,7 +22,7 @@ HighResTimer::duration HighResTimer::timeSinceReset()
 {
 #if defined(_MSC_VER)
 	QueryPerformanceCounter(&current_time);
-	duration elapsed = (duration)((current_time.QuadPart - reset_time.QuadPart) * 1000000) / frequency.QuadPart;
+	duration elapsed = std::chrono::microseconds(((current_time.QuadPart - reset_time.QuadPart) * 1000000) / frequency.QuadPart);
 #else
 	current_time = std::chrono::high_resolution_clock::now();
 	duration elapsed = current_time - reset_time;
@@ -35,7 +35,7 @@ HighResTimer::duration HighResTimer::timeSincePrevious()
 {
 #if defined(_MSC_VER)
 	QueryPerformanceCounter(&current_time);
-	duration elapsed = (duration)((current_time.QuadPart - previous_time.QuadPart) * 1000000) / frequency.QuadPart;
+	duration elapsed = std::chrono::microseconds(((current_time.QuadPart - previous_time.QuadPart) * 1000000) / frequency.QuadPart);
 #else
 	current_time = std::chrono::high_resolution_clock::now();
 	duration elapsed = current_time - previous_time;
@@ -453,10 +453,11 @@ void EnhancedOutput::outputSortedBam()
 
 	// Connect BAM output to stdout
 	BGZF *bam_stream;
-	#ifdef _WIN32
-		int result = _setmode(_fileno(stdout), _O_BINARY);
-	#endif
-	bam_stream = bgzf_dopen(fileno(stdout), "w");
+#ifdef _WIN32
+	int result = _setmode(_fileno(stdout), _O_BINARY);
+#endif
+//	std::setvbuf(stdout, NULL, _IOFBF, 65536);
+	bam_stream = bgzf_dopen(fileno(stdout), "wu");
 
 	//// ABORT!!!
 	//for (auto &entry : ref_seq_map) {

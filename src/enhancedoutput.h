@@ -65,7 +65,7 @@ public:
 	HighResTimer();
 
 #if defined(_MSC_VER)
-	typedef std::chrono::duration<double, std::ratio<1, 1000000>> duration;
+	typedef std::chrono::duration<double, std::ratio<1, 1>> duration;
 #else
 	typedef std::chrono::duration<double> duration;
 #endif
