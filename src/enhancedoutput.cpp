@@ -45,7 +45,7 @@ HighResTimer::duration HighResTimer::timeSincePrevious()
 }
 
 EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
-	: sortedbam(opt.sortedbam), outputunmapped(false), pre_sort_time(0), sort_time(0), post_sort_time(0)
+	: sortedbam(opt.sortedbam), outputunmapped(false), get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 	if ((opt.pseudobam) && ~(opt.exon_coords_file.empty())) {
 
@@ -127,14 +127,15 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 }
 
 EnhancedOutput::EnhancedOutput()
-	: sortedbam(false), outputunmapped(false), pre_sort_time(0), sort_time(0), post_sort_time(0)
+	: sortedbam(false), outputunmapped(false), get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 }
 
 bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, bool mapped, int &posread, int &posmate, int slen1, int slen2)
 {
+	timer.resetTimer();
 	bam_cigar.clear();
-	cigar_len = 0;
+	align_len = 0;
 
 	ExonMap::const_iterator map_entry = exon_map.find(ref_name);
 	if (map_entry == exon_map.end()) {
@@ -146,6 +147,7 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	if (gene_list.find(gene_name) == gene_list.end()) {
 		gene_list.emplace(gene_name);
 	} else {
+		get_sam_time += timer.timeSinceReset();
 		return 1;
 	}
 
@@ -168,11 +170,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 					op_len = span[2] - span[1] + span[0] - 1 - read_offset;
 					read_offset = span[1] - span[0] + 1;
 
-					// Put below into function?
-					sprintf(cig, "%dN", op_len);
-					cig_string.insert(0, cig);
-					bam_cigar.insert(bam_cigar.begin(), ((op_len<<4) | 3));
-					cigar_len += op_len;
+					//sprintf(cig, "%dN", op_len);
+					//cig_string.insert(0, cig);
+					//bam_cigar.insert(bam_cigar.begin(), ((op_len<<4) | 3));
+					//align_len += op_len;
+					buildCigar(cig_string, 1, op_len, 'N', 3);
 
 					if (read_len > read_offset) {
 						op_len = read_offset;
@@ -184,20 +186,22 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						read_len = 0;
 					}
 
-					sprintf(cig, "%dM", op_len);
-					cig_string.insert(0, cig);
-					bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
-					cigar_len += op_len;
+					//sprintf(cig, "%dM", op_len);
+					//cig_string.insert(0, cig);
+					//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
+					//align_len += op_len;
+					buildCigar(cig_string, 1, op_len, 'M', 0);
 
 				} else {  // Positive strand
 
 					op_len = span[2] - read_offset - 1;
 					read_offset = span[1] - span[0] + 1;
 
-					sprintf(cig, "%dN", op_len);
-					cig_string += cig;
-					bam_cigar.push_back(((op_len << 4) | 3));
-					cigar_len += op_len;
+					//sprintf(cig, "%dN", op_len);
+					//cig_string += cig;
+					//bam_cigar.push_back(((op_len << 4) | 3));
+					//align_len += op_len;
+					buildCigar(cig_string, 0, op_len, 'N', 3);
 					
 					if (read_len > read_offset){
 						op_len = read_offset;
@@ -208,10 +212,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						read_len = 0;
 					}
 
-					sprintf(cig, "%dM", op_len);
-					cig_string += cig;
-					bam_cigar.push_back(((op_len << 4) | 0));
-					cigar_len += op_len;
+					//sprintf(cig, "%dM", op_len);
+					//cig_string += cig;
+					//bam_cigar.push_back(((op_len << 4) | 0));
+					//align_len += op_len;
+					buildCigar(cig_string, 0, op_len, 'M', 0);
 
 				}
 
@@ -223,9 +228,10 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 					op_len = read_offset;
 					read_len -= read_offset;
 
-					sprintf(cig, "%dS", op_len);
-					cig_string = cig;
-					bam_cigar.push_back(((op_len << 4) | 4));
+					//sprintf(cig, "%dS", op_len);
+					//cig_string = cig;
+					//bam_cigar.push_back(((op_len << 4) | 4));
+					buildCigar(cig_string, 0, op_len, 'S', 4);
 					
 				}
 
@@ -242,10 +248,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						posread = span[1] - span[2] - posread - slen1 + 1;
 					}
 
-					sprintf(cig, "%dM", op_len);
-					cig_string.insert(0, cig);
-					bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
-					cigar_len += op_len;
+					//sprintf(cig, "%dM", op_len);
+					//cig_string.insert(0, cig);
+					//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
+					//align_len += op_len;
+					buildCigar(cig_string, 1, op_len, 'M', 0);
 
 				} else {  // Positive strand
 
@@ -260,10 +267,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 					}
 					posread += span[2] - span[0];
 
-					sprintf(cig, "%dM", op_len);
-					cig_string += cig;
-					bam_cigar.push_back(((op_len << 4) | 0));
-					cigar_len += op_len;
+					//sprintf(cig, "%dM", op_len);
+					//cig_string += cig;
+					//bam_cigar.push_back(((op_len << 4) | 0));
+					//align_len += op_len;
+					buildCigar(cig_string, 0, op_len, 'M', 0);
 
 				}
 			}
@@ -339,17 +347,19 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 			op_len = read_len;
 			posread = -read_offset - read_len;
 			
-			sprintf(cig, "%dS", op_len);
-			cig_string.insert(0, cig);
-			bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 4));
+			//sprintf(cig, "%dS", op_len);
+			//cig_string.insert(0, cig);
+			//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 4));
+			buildCigar(cig_string, 1, op_len, 'S', 4);
 
 		} else {  // Positive strand
 			
 			op_len = read_len;
 			
-			sprintf(cig, "%dS", op_len);
-			cig_string += cig;
-			bam_cigar.push_back(((op_len << 4) | 4));
+			//sprintf(cig, "%dS", op_len);
+			//cig_string += cig;
+			//bam_cigar.push_back(((op_len << 4) | 4));
+			buildCigar(cig_string, 0, op_len, 'S', 4);
 
 		}
 	}
@@ -358,17 +368,48 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 		posmate = -mate_offset - mate_len;
 	}
 
-	if (mapped) {
-		sprintf(cig, "%s", cig_string.c_str());
-	} else {
-		sprintf(cig, "*");
+	if (!sortedbam) {
+		if (mapped) {
+			sprintf(cig, "%s", cig_string.c_str());
+		} else {
+			sprintf(cig, "*");
+		}
 	}
 
+	get_sam_time += timer.timeSinceReset();
 	return 0;
+}
+
+void EnhancedOutput::buildCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char, uint cig_int)
+{
+	if (sortedbam) {
+
+		if (prepend) {
+			bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | cig_int));
+		} else {
+			bam_cigar.push_back(((op_len << 4) | cig_int));
+		}
+		if (cig_int != 4) {
+			align_len += op_len;
+		}
+
+	} else {
+
+		static char cig_[10];
+		char *cig = &cig_[0];
+
+		sprintf(cig, "%d%c", op_len, cig_char);
+		if (prepend) {
+			cig_string.insert(0, cig);
+		} else {
+			cig_string += cig;
+		}
+	}
 }
 
 void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, const char *seq, const char *qual, int nmap, int strand)
 {
+	timer.resetTimer();
 	uint *buffer = (uint*)(outBamBuffer);
 	uint n_bytes = 0;
 	uint name_len;
@@ -384,7 +425,7 @@ void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int f
 
 	// bin_mq_nl
 	name_len = strlen(n1) + 1;
-	buffer[3] = ((reg2bin(posread - 1, posread + cigar_len - 1)<<16) | (mapq<<8) | name_len);
+	buffer[3] = ((reg2bin(posread - 1, posread + align_len - 1)<<16) | (mapq<<8) | name_len);
 
 	// flag_nc
 	n_cigar = bam_cigar.size();
@@ -442,11 +483,12 @@ void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int f
 	sort_file_map[ref_name]->write(outBamBuffer, n_bytes);
 	ref_seq_map[ref_name][2]++; // Combine with sort_file_map?
 
+	out_align_time += timer.timeSinceReset();
 }
 
 void EnhancedOutput::outputSortedBam()
 {
-	HighResTimer timer;
+	timer.resetTimer();
 	std::fstream *sort_file;
 	char *align_buffer;
 	uint *sort_buffer;
@@ -457,7 +499,7 @@ void EnhancedOutput::outputSortedBam()
 	int result = _setmode(_fileno(stdout), _O_BINARY);
 #endif
 //	std::setvbuf(stdout, NULL, _IOFBF, 65536);
-	bam_stream = bgzf_dopen(fileno(stdout), "wu");
+	bam_stream = bgzf_dopen(fileno(stdout), "w1");
 
 	//// ABORT!!!
 	//for (auto &entry : ref_seq_map) {

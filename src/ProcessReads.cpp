@@ -173,6 +173,10 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 
   std::cerr << " done" << std::endl;
 
+  std::cerr << "get sam time: " << MP.exon_output.get_sam_time.count() << " sec" << std::endl;
+  std::cerr << "out align time: " << MP.exon_output.out_align_time.count() << " sec" << std::endl;
+  std::cerr << "total output time: " << MP.exon_output.output_time.count() << " sec" << std::endl;
+
   // Output sorted BAM
 
   if (MP.exon_output.sortedbam) {

@@ -104,13 +104,16 @@ public:
 	// Temporary and buffer storage for mapping reads and BAM output
 	std::set<std::string> gene_list;
 	std::vector<uint> bam_cigar;
-	uint cigar_len;
+	uint align_len;
 	char outBamBuffer[MAX_BAM_ALIGN_SIZE];
 
 	// Timing variables
+	HighResTimer timer;
+	HighResTimer::duration get_sam_time, out_align_time, output_time;
 	HighResTimer::duration pre_sort_time, sort_time, post_sort_time;
 
 	bool getSamData(std::string &ref_name, char *cig, int& strand, bool mapped, int &posread, int &posmate, int slen1, int slen2);
+	void buildCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char, uint cig_int);
 	void outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, const char *seq, const char *qual, int nmap, int strand);
 	void outputSortedBam();
 

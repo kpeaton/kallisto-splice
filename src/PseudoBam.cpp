@@ -132,6 +132,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
+		HighResTimer timer;
 		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
@@ -143,6 +144,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			int strand = 0;
 
 			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen1, slen2)) {
+				exon_output.output_time += timer.timeSinceReset();
 				continue;
 			}
 
@@ -164,6 +166,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			}
 
 		}
+		exon_output.output_time += timer.timeSinceReset();
 
       }
 
@@ -216,6 +219,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
 		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
+		HighResTimer timer;
 		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
 
 			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
@@ -248,6 +252,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			}
 
 		}
+		exon_output.output_time += timer.timeSinceReset();
 
       }
 
