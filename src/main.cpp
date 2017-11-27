@@ -413,6 +413,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   }
   
   if (sbam_flag) {
+	opt.pseudobam = true;
 	opt.sortedbam = true;
   }
   

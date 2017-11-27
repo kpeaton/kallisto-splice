@@ -82,17 +82,9 @@ public:
         batchUmis.resize(opt.batch_ids.size());
       }
 
-	  if ((opt.pseudobam) && (opt.exon_coords_file.empty())) {
+	  // Initialize enhanced output object
+	  output_handler = EnhancedOutput(index, opt);
 
-		  // Write the bam header
-		  index.writePseudoBamHeader(std::cout);
-
-	  } else {
-
-		  // Initialize enhanced output object
-		  exon_output = EnhancedOutput(index, opt);
-
-	  }
     }
 
   std::mutex reader_lock;
@@ -114,7 +106,7 @@ public:
   std::vector<std::vector<std::pair<int, std::string>>> batchUmis;
   std::vector<std::vector<std::pair<std::vector<int>, std::string>>> newBatchECumis;
 
-  EnhancedOutput exon_output;
+  EnhancedOutput output_handler;
 
   void processReads();
 

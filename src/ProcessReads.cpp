@@ -173,23 +173,27 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 
   std::cerr << " done" << std::endl;
 
-  std::cerr << "get sam time: " << MP.exon_output.get_sam_time.count() << " sec" << std::endl;
-  std::cerr << "out align time: " << MP.exon_output.out_align_time.count() << " sec" << std::endl;
-  std::cerr << "total output time: " << MP.exon_output.output_time.count() << " sec" << std::endl;
+  if (MP.output_handler.enhancedoutput) {
 
-  // Output sorted BAM
+	  std::cerr << "get sam time: " << MP.output_handler.get_sam_time.count() << " sec" << std::endl;
+	  std::cerr << "out align time: " << MP.output_handler.out_align_time.count() << " sec" << std::endl;
+	  std::cerr << "total output time: " << MP.output_handler.output_time.count() << " sec" << std::endl;
 
-  if (MP.exon_output.sortedbam) {
+	  // Output sorted BAM
 
-	  std::cerr << "sorting bam output ..."; std::cerr.flush();
+	  if (MP.output_handler.sortedbam) {
 
-	  MP.exon_output.outputSortedBam();
+		  std::cerr << "sorting bam output ..."; std::cerr.flush();
 
-	  std::cerr << " done" << std::endl;
+		  MP.output_handler.outputSortedBam();
 
-	  std::cerr << "pre sort time: " << MP.exon_output.pre_sort_time.count() << " sec" << std::endl;
-	  std::cerr << "sort time: " << MP.exon_output.sort_time.count() << " sec" << std::endl;
-	  std::cerr << "post sort time: " << MP.exon_output.post_sort_time.count() << " sec" << std::endl;
+		  std::cerr << " done" << std::endl;
+
+		  std::cerr << "pre sort time: " << MP.output_handler.pre_sort_time.count() << " sec" << std::endl;
+		  std::cerr << "sort time: " << MP.output_handler.sort_time.count() << " sec" << std::endl;
+		  std::cerr << "post sort time: " << MP.output_handler.post_sort_time.count() << " sec" << std::endl;
+
+	  }
 
   }
 
@@ -724,12 +728,12 @@ void ReadProcessor::processBuffer() {
         outputPseudoBam(index, u,
           s1, names[i-1].first, quals[i-1].first, l1, names[i-1].second, v1,
           s2, names[i].first, quals[i].first, l2, names[i].second, v2,
-          paired, mp.exon_output);
+          paired, mp.output_handler);
       } else {
 		  outputPseudoBam(index, u,
 			  s1, names[i].first, quals[i].first, l1, names[i].second, v1,
 			  nullptr, nullptr, nullptr, 0, 0, v2,
-			  paired, mp.exon_output);
+			  paired, mp.output_handler);
       }
     }
 

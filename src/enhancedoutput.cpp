@@ -45,9 +45,10 @@ HighResTimer::duration HighResTimer::timeSincePrevious()
 }
 
 EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
-	: sortedbam(opt.sortedbam), outputunmapped(false), get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
+	: enhancedoutput(opt.pseudobam && !opt.exon_coords_file.empty()), sortedbam(opt.sortedbam), outputunmapped(false),
+	  get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
-	if ((opt.pseudobam) && ~(opt.exon_coords_file.empty())) {
+	if (enhancedoutput) {
 
 		// Load the exon coordinate map data
 		std::ifstream file(opt.exon_coords_file);
@@ -123,11 +124,17 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 		}
 
+	} else if (opt.pseudobam) {
+
+		// Write the bam header
+		index.writePseudoBamHeader(std::cout);
+
 	}
 }
 
 EnhancedOutput::EnhancedOutput()
-	: sortedbam(false), outputunmapped(false), get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
+	: enhancedoutput(false), sortedbam(false), outputunmapped(false),
+	  get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 }
 
@@ -169,13 +176,7 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 
 					op_len = span[2] - span[1] + span[0] - 1 - read_offset;
 					read_offset = span[1] - span[0] + 1;
-
-					//sprintf(cig, "%dN", op_len);
-					//cig_string.insert(0, cig);
-					//bam_cigar.insert(bam_cigar.begin(), ((op_len<<4) | 3));
-					//align_len += op_len;
 					buildCigar(cig_string, 1, op_len, 'N', 3);
-
 					if (read_len > read_offset) {
 						op_len = read_offset;
 						read_len -= read_offset;
@@ -185,24 +186,13 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						posread = read_offset - span[2] - read_len;
 						read_len = 0;
 					}
-
-					//sprintf(cig, "%dM", op_len);
-					//cig_string.insert(0, cig);
-					//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
-					//align_len += op_len;
 					buildCigar(cig_string, 1, op_len, 'M', 0);
 
 				} else {  // Positive strand
 
 					op_len = span[2] - read_offset - 1;
 					read_offset = span[1] - span[0] + 1;
-
-					//sprintf(cig, "%dN", op_len);
-					//cig_string += cig;
-					//bam_cigar.push_back(((op_len << 4) | 3));
-					//align_len += op_len;
 					buildCigar(cig_string, 0, op_len, 'N', 3);
-					
 					if (read_len > read_offset){
 						op_len = read_offset;
 						read_len -= read_offset;
@@ -211,26 +201,17 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						op_len = read_len;
 						read_len = 0;
 					}
-
-					//sprintf(cig, "%dM", op_len);
-					//cig_string += cig;
-					//bam_cigar.push_back(((op_len << 4) | 0));
-					//align_len += op_len;
 					buildCigar(cig_string, 0, op_len, 'M', 0);
 
 				}
 
-			} else if (posread <= span[1]) {  // Begin mapping coordinates for read
+			} else if (posread <= span[1]) {  // Begin mapping coordinates for read  // MOVE OUTSIDE LOOP?!
 
 				if (posread < span[0]) {
 
 					read_offset = span[0] - posread;
 					op_len = read_offset;
 					read_len -= read_offset;
-
-					//sprintf(cig, "%dS", op_len);
-					//cig_string = cig;
-					//bam_cigar.push_back(((op_len << 4) | 4));
 					buildCigar(cig_string, 0, op_len, 'S', 4);
 					
 				}
@@ -247,11 +228,6 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						read_len = 0;
 						posread = span[1] - span[2] - posread - slen1 + 1;
 					}
-
-					//sprintf(cig, "%dM", op_len);
-					//cig_string.insert(0, cig);
-					//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 0));
-					//align_len += op_len;
 					buildCigar(cig_string, 1, op_len, 'M', 0);
 
 				} else {  // Positive strand
@@ -266,11 +242,6 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 						read_len = 0;
 					}
 					posread += span[2] - span[0];
-
-					//sprintf(cig, "%dM", op_len);
-					//cig_string += cig;
-					//bam_cigar.push_back(((op_len << 4) | 0));
-					//align_len += op_len;
 					buildCigar(cig_string, 0, op_len, 'M', 0);
 
 				}
@@ -346,19 +317,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 
 			op_len = read_len;
 			posread = -read_offset - read_len;
-			
-			//sprintf(cig, "%dS", op_len);
-			//cig_string.insert(0, cig);
-			//bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | 4));
 			buildCigar(cig_string, 1, op_len, 'S', 4);
 
 		} else {  // Positive strand
 			
 			op_len = read_len;
-			
-			//sprintf(cig, "%dS", op_len);
-			//cig_string += cig;
-			//bam_cigar.push_back(((op_len << 4) | 4));
 			buildCigar(cig_string, 0, op_len, 'S', 4);
 
 		}

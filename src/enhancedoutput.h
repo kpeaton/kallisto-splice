@@ -90,6 +90,7 @@ public:
 	EnhancedOutput();
 
 	// Exon coordinate map
+	bool enhancedoutput;
 	typedef std::map<std::string, std::tuple<std::string, std::string, std::vector<std::vector<int>>>> ExonMap;
 	ExonMap exon_map;
 
@@ -100,6 +101,8 @@ public:
 	std::string sam_header;
 	std::string sort_dir;
 	std::map<std::string, std::fstream*> sort_file_map;
+	//typedef std::map<std::string, std::tuple<std::vector<int>, uint64_t, std::fstream*>> ChromoMap;  // Add this?
+	//ChromoMap chromo_map;
 
 	// Temporary and buffer storage for mapping reads and BAM output
 	std::set<std::string> gene_list;

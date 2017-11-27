@@ -5,7 +5,7 @@
 void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
     const char *s1, const char *n1, const char *q1, int slen1, int nlen1, const std::vector<std::pair<KmerEntry,int>>& v1,
     const char *s2, const char *n2, const char *q2, int slen2, int nlen2, const std::vector<std::pair<KmerEntry,int>>& v2,
-	bool paired, EnhancedOutput &exon_output) {
+	bool paired, EnhancedOutput &output_handler) {
 
   static char buf1[32768];
   static char buf2[32768];
@@ -22,18 +22,29 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
   if (u.empty()) {
     // no mapping
-	if (!exon_output.exon_map.empty() && !exon_output.outputunmapped) {
-		return;
-	}
-    if (paired) {
-      printf("%s\t77\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n1,s1,q1);
-      printf("%s\t141\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n2,s2,q2);
-      //o << seq1->name.s << "" << seq1->seq.s << "\t" << seq1->qual.s << "\n";
-      //o << seq2->name.s << "\t141\t*\t0\t0\t*\t*\t0\t0\t" << seq2->seq.s << "\t" << seq2->qual.s << "\n";
+	if (output_handler.enhancedoutput) {
+
+		if (!output_handler.outputunmapped) {
+			return;
+		}
+		// HAVE TO ADD OPTION TO OUTPUT UNMAPPED READS FOR ENHANCED_OUTPUT!!!
+
+	} else if (paired) {
+
+		printf("%s\t77\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n1,s1,q1);
+		printf("%s\t141\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n2,s2,q2);
+
     } else {
-      printf("%s\t4\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n1,s1,q1);
+
+		printf("%s\t4\t*\t0\t0\t*\t*\t0\t0\t%s\t%s\n", n1,s1,q1);
+
     }
   } else {
+
+	if (output_handler.enhancedoutput) {
+		// Trim u to remove repeated genes!
+	}
+
     if (paired) {
 
       int flag1 = 0x01 + 0x40;
@@ -53,7 +64,6 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
         flag1 += 0x02; // proper pair
         flag2 += 0x02; // proper pair
       }
-
 
       int p1 = -1, p2 = -1;
       KmerEntry val1, val2;
@@ -88,7 +98,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
       // output pseudoalignments for read 1
       bool firstTr = true;
-	  exon_output.gene_list.clear();
+	  output_handler.gene_list.clear();
       for (auto tr : u) {
         int f1 = flag1;
         std::pair<int, bool> x1 {-1,true};
@@ -133,7 +143,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
 		HighResTimer timer;
-		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
+		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
 
@@ -143,14 +153,14 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			int strand = 0;
 
-			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen1, slen2)) {
-				exon_output.output_time += timer.timeSinceReset();
+			if (output_handler.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen1, slen2)) {
+				output_handler.output_time += timer.timeSinceReset();
 				continue;
 			}
 
-			if (exon_output.sortedbam) {
+			if (output_handler.sortedbam) {
 
-				exon_output.outputBamAlignment(ref_name, posread, flag, slen1, posmate, tlen, n1, seq, qual, nmap, strand);
+				output_handler.outputBamAlignment(ref_name, posread, flag, slen1, posmate, tlen, n1, seq, qual, nmap, strand);
 
 			} else {
 
@@ -166,14 +176,14 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			}
 
 		}
-		exon_output.output_time += timer.timeSinceReset();
+		output_handler.output_time += timer.timeSinceReset();
 
       }
 
       revset = false;
       // output pseudoalignments for read 2
       firstTr = true;
-	  exon_output.gene_list.clear();
+	  output_handler.gene_list.clear();
       for (auto tr : u) {
         int f2 = flag2;
         std::pair<int, bool> x1 {-1,true};
@@ -220,7 +230,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
 		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
 		HighResTimer timer;
-		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
+		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
 
@@ -230,13 +240,13 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			int strand = 0;
 
-			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen2, slen1)) {
+			if (output_handler.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen2, slen1)) {
 				continue;
 			}
 
-			if (exon_output.sortedbam) {
+			if (output_handler.sortedbam) {
 
-				exon_output.outputBamAlignment(ref_name, posread, flag, slen2, posmate, tlen, n2, seq, qual, nmap, strand);
+				output_handler.outputBamAlignment(ref_name, posread, flag, slen2, posmate, tlen, n2, seq, qual, nmap, strand);
 
 			} else {
 
@@ -252,7 +262,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			}
 
 		}
-		exon_output.output_time += timer.timeSinceReset();
+		output_handler.output_time += timer.timeSinceReset();
 
       }
 
@@ -272,7 +282,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
       bool revset = false;
       bool firstTr = true;
-	  exon_output.gene_list.clear();
+	  output_handler.gene_list.clear();
       for (auto tr : u) {
         int f1 = 0;
         auto x1 = index.findPosition(tr, km1, val1, p1);
@@ -296,7 +306,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
-		if (exon_output.exon_map.empty()) {  // Default calculations when exon coordinates map is empty
+		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, dummy, slen1, index.target_lens_[tr]);
 
@@ -306,13 +316,13 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			int strand = 0;
 
-			if (exon_output.getSamData(ref_name, cig, strand, mapped, posread, dummy, slen1, 0)) {
+			if (output_handler.getSamData(ref_name, cig, strand, mapped, posread, dummy, slen1, 0)) {
 				continue;
 			}
 
-			if (exon_output.sortedbam) {
+			if (output_handler.sortedbam) {
 
-				exon_output.outputBamAlignment(ref_name, posread, flag, slen1, dummy, 0, n1, seq, qual, nmap, strand);
+				output_handler.outputBamAlignment(ref_name, posread, flag, slen1, dummy, 0, n1, seq, qual, nmap, strand);
 
 			} else {
 
