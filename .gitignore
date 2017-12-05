@@ -27,3 +27,6 @@ src/htslib/unused
 CTestTestfile.cmake
 *~
 *.orig
+debug/
+release/
+.vscode/

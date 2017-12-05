@@ -139,6 +139,12 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		int flag = f1 & 0xFFFF;
 		int posread = (f1 & 0x10) ? (x1.first - slen1 + 1) : x1.first;
 		int posmate = (f1 & 0x20) ? (x2.first - slen2 + 1) : x2.first;
+		if (v1.empty()) {
+			posread = posmate;
+		}
+		if (v2.empty()) {
+			posmate = posread;
+		}
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
@@ -147,7 +153,10 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
 
-			printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, (!v1.empty()) ? 255 : 0, cig, posmate, tlen, seq, qual, nmap);
+			if (v1.empty()) {
+				break; // only report primary alignment
+			}
 
 		} else {  // Convert to genome coordinates and build CIGAR string
 
@@ -214,9 +223,8 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
         if (!firstTr) {
           f2 += 0x100; // secondary alignment
         }
-
         firstTr = false;
-        
+
         int tlen = x1.first - x2.first;
         if (tlen != 0) {
           tlen += (tlen > 0) ? 1 : -1;
@@ -226,6 +234,12 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		int flag = f2 & 0xFFFF;
 		int posread = (f2 & 0x10) ? (x2.first - slen2 + 1) : x2.first;
 		int posmate = (f2 & 0x20) ? (x1.first - slen1 + 1) : x1.first;
+		if (v1.empty()) {
+			posmate = posread;
+		}
+		if (v2.empty()) {
+			posread = posmate;
+		}
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
 		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
@@ -234,7 +248,10 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
 
-			printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, (!v2.empty()) ? 255 : 0, cig, posmate, tlen, seq, qual, nmap);
+			if (v2.empty()) {
+				break; // only print primary alignment
+			}
 
 		} else {  // Convert to genome coordinates and build CIGAR string
 
@@ -265,8 +282,6 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		output_handler.output_time += timer.timeSinceReset();
 
       }
-
-
     } else {
       // single end
       int nmap = (int) u.size();
