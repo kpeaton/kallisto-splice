@@ -519,7 +519,7 @@ void EnhancedOutput::outputSortedBam()
 		}
 
 		// Load data from file
-		uint n_bytes = sort_file->tellg();  // uint64_t??
+		uint n_bytes = sort_file->tellg();  // uint64_t?? size_t??
 		sort_file->seekg(std::fstream::beg);
 		sort_file->read(align_buffer, n_bytes);
 		sort_file->close();

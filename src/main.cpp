@@ -1131,6 +1131,8 @@ int main(int argc, char *argv[]) {
       }
 
     } else if (cmd == "quant") {
+	  std::chrono::time_point<std::chrono::system_clock> start, end;
+	  start = std::chrono::system_clock::now();
       if (argc==2) {
         usageEM();
         return 0;
@@ -1253,6 +1255,9 @@ int main(int argc, char *argv[]) {
 
         cerr << endl;
       }
+	  end = std::chrono::system_clock::now();
+	  std::chrono::duration<double> elapsed_seconds = end - start;
+	  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
     } else if (cmd == "quant-only") {
       if (argc==2) {
         usageEMOnly();

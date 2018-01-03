@@ -146,6 +146,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			posmate = posread;
 		}
 		std::string ref_name = index.target_names_[tr];
+		int mapq = (!v1.empty()) ? 255 : 0;
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
 		HighResTimer timer;
@@ -153,8 +154,9 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
 
-			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, (!v1.empty()) ? 255 : 0, cig, posmate, tlen, seq, qual, nmap);
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 			if (v1.empty()) {
+				output_handler.output_time += timer.timeSinceReset();
 				break; // only report primary alignment
 			}
 
@@ -173,7 +175,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			} else {
 
-				printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 				if (strand == 0) {
 					printf("\n");
 				} else if (strand < 0) {
@@ -241,6 +243,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			posread = posmate;
 		}
 		std::string ref_name = index.target_names_[tr];
+		int mapq = (!v2.empty()) ? 255 : 0;
 		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
 		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
 		HighResTimer timer;
@@ -248,8 +251,9 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
 
-			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, (!v2.empty()) ? 255 : 0, cig, posmate, tlen, seq, qual, nmap);
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 			if (v2.empty()) {
+				output_handler.output_time += timer.timeSinceReset();
 				break; // only print primary alignment
 			}
 
@@ -258,6 +262,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			int strand = 0;
 
 			if (output_handler.getSamData(ref_name, cig, strand, mapped, posread, posmate, slen2, slen1)) {
+				output_handler.output_time += timer.timeSinceReset();
 				continue;
 			}
 
@@ -267,7 +272,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 			} else {
 
-				printf("%s\t%d\t%s\t%d\t255\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n2, flag, ref_name.c_str(), posread, cig, posmate, tlen, seq, qual, nmap);
+				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n2, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 				if (strand == 0) {
 					printf("\n");
 				} else if (strand < 0) {
