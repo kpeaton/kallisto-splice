@@ -40,6 +40,7 @@ struct ProgramOptions {
   bool umi;
   std::string exon_coords_file;
   bool sortedbam;
+  std::string bed_file;
   std::string gfa; // used for inspect
 
 ProgramOptions() :

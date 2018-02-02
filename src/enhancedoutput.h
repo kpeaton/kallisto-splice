@@ -91,7 +91,8 @@ public:
 
 	// Exon coordinate map
 	bool enhancedoutput;
-	typedef std::map<std::string, std::tuple<std::string, std::string, std::vector<std::vector<int>>>> ExonMap;
+	static enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
+	typedef std::map<std::string, std::tuple<std::string, std::string, int, IntronFlag, std::vector<std::vector<int>>>> ExonMap;
 	ExonMap exon_map;
 
 	// SAM/BAM output data
@@ -103,6 +104,11 @@ public:
 	std::map<std::string, std::fstream*> sort_file_map;
 	//typedef std::map<std::string, std::tuple<std::vector<int>, uint64_t, std::fstream*>> ChromoMap;  // Add this?
 	//ChromoMap chromo_map;
+
+	// BED output data
+	bool outputbed;
+	std::string bed_file;
+	std::map<std::tuple<std::string, int, int>, std::tuple<std::string, int, char, int, int>> junction_map;
 
 	// Temporary and buffer storage for mapping reads and BAM output
 	std::set<std::string> gene_list;

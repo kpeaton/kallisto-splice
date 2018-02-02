@@ -45,21 +45,33 @@ HighResTimer::duration HighResTimer::timeSincePrevious()
 }
 
 EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
-	: enhancedoutput(opt.pseudobam && !opt.exon_coords_file.empty()), sortedbam(opt.sortedbam), outputunmapped(false),
+	: enhancedoutput(opt.pseudobam && !opt.exon_coords_file.empty()),
+	  sortedbam(opt.sortedbam),
+	  outputunmapped(false),
+	  outputbed(opt.pseudobam && !opt.exon_coords_file.empty() && !opt.bed_file.empty()),
 	  get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 	if (enhancedoutput) {
 
-		// Load the exon coordinate map data
+		// Load the exon/intron coordinate map data
 		std::ifstream file(opt.exon_coords_file);
 		CSVRow row;
 		std::string last_key;
 		while (file >> row) {
 			if (last_key == row[0]){
-				std::get<2>(exon_map[last_key]).emplace_back(std::vector<int>({ std::stoi(row[1]), std::stoi(row[2]), std::stoi(row[3]) }));
+				std::get<4>(exon_map[last_key]).emplace_back(std::vector<int>({ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) }));
 			} else {
+				IntronFlag intron_flag = intronNone;
+				if (row[0].back() == ')') {
+					if ((last_key.back() == ')') && (last_key.substr(0, last_key.find("::") + 2) == row[0].substr(0, row[0].find("::") + 2))) {
+						intron_flag = intronEnd;
+						std::get<3>(exon_map[last_key]) = intronStart;
+					} else {
+						intron_flag = intronFull;
+					}
+				}
 				last_key = row[0];
-				exon_map.emplace(last_key, std::make_tuple(row[4], row[5], std::vector<std::vector<int>>({ std::vector<int>({ std::stoi(row[1]), std::stoi(row[2]), std::stoi(row[3]) }) })));
+				exon_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, std::vector<std::vector<int>>({ std::vector<int>({ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) }) })));
 			}
 		}
 		file.close();
@@ -74,12 +86,13 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				exit(1);
 			}
 
-			auto &entry = std::get<2>(map_entry->second);
+			int strand = std::get<2>(map_entry->second);
+			auto &entry = std::get<4>(map_entry->second);
 			int len;
-			if (entry[0][2] < 0) {
-				len = entry.front()[1] - entry.front()[0] - entry.front()[2];
+			if (strand < 0) {
+				len = entry.front()[2] + entry.front()[1] - entry.front()[0];
 			} else {
-				len = entry.back()[1] - entry.back()[0] + entry.back()[2];
+				len = entry.back()[2] + entry.back()[1] - entry.back()[0];
 			}
 
 			key = std::get<1>(map_entry->second).c_str();
@@ -124,6 +137,10 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 		}
 
+		if (outputbed) {
+			bed_file = opt.bed_file;
+		}
+
 	} else if (opt.pseudobam) {
 
 		// Write the bam header
@@ -133,7 +150,10 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 }
 
 EnhancedOutput::EnhancedOutput()
-	: enhancedoutput(false), sortedbam(false), outputunmapped(false),
+	: enhancedoutput(false),
+	  sortedbam(false),
+	  outputunmapped(false),
+	  outputbed(false),
 	  get_sam_time(0), out_align_time(0), output_time(0), pre_sort_time(0), sort_time(0), post_sort_time(0)
 {
 }
@@ -144,6 +164,11 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	bam_cigar.clear();
 	align_len = 0;
 
+	if (!mapped) {
+		return 1;  // HAVE TO ADD OPTION TO OUTPUT UNMAPPED READS FOR ENHANCED_OUTPUT!!!
+	}
+
+	std::string trans_name = ref_name;
 	ExonMap::const_iterator map_entry = exon_map.find(ref_name);
 	if (map_entry == exon_map.end()) {
 		std::cerr << "Transcript name could not be found in exon coordinate file: " << ref_name << std::endl;
@@ -159,7 +184,9 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	}
 
 	ref_name = std::get<1>(map_entry->second);
-	strand = (std::get<2>(map_entry->second)[0][2] < 0) ? -1 : 1;  // Apply elsewhere!
+	strand = (std::get<2>(map_entry->second) < 0) ? -1 : 1;  // Use trsense from findPosition instead ? ? !!
+	bool negstrand = strand < 0;
+	IntronFlag intron_flag = std::get<3>(map_entry->second);
 
 	std::string cig_string;
 	uint op_len;
@@ -167,143 +194,114 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	int mate_len = slen2;
 	int read_offset = 0;
 	int mate_offset = 0;
-	for (auto &span : std::get<2>(map_entry->second)) {
+	int start_coord = 0;
+	int end_coord = 0;
+
+	std::tuple<std::string, int, int> key = std::make_tuple(ref_name, 0, 0);
+
+	for (auto &span : std::get<4>(map_entry->second)) {
 
 		if (read_len != 0) {  // Not done mapping coordinates for read
+
 			if (read_len != slen1) {  // In the process of mapping coordinates for read
 
-				if (span[2] < 0) {  // Negative strand               Use trsense from findPosition instead??!!
+				if (negstrand) {
+					start_coord = span[2] + span[1] - span[0];
+					end_coord = read_offset;
+				} else {
+					start_coord = read_offset;
+					end_coord = span[2];
+				}
+				buildCigar(cig_string, negstrand, end_coord - start_coord - 1, 'N', 3);
 
-					op_len = span[2] - span[1] + span[0] - 1 - read_offset;
-					read_offset = span[1] - span[0] + 1;
-					buildCigar(cig_string, 1, op_len, 'N', 3);
-					if (read_len > read_offset) {
-						op_len = read_offset;
-						read_len -= read_offset;
-						read_offset = span[2];
+				if (outputbed) {
+					std::get<1>(key) = start_coord;
+					std::get<2>(key) = end_coord;
+					if (junction_map.find(key) == junction_map.end()) {
+						junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', 0, 0));
 					} else {
-						op_len = read_len;
-						posread = read_offset - span[2] - read_len;
-						read_len = 0;
+						std::get<1>(junction_map[key])++;
 					}
-					buildCigar(cig_string, 1, op_len, 'M', 0);
-
-				} else {  // Positive strand
-
-					op_len = span[2] - read_offset - 1;
-					read_offset = span[1] - span[0] + 1;
-					buildCigar(cig_string, 0, op_len, 'N', 3);
-					if (read_len > read_offset){
-						op_len = read_offset;
-						read_len -= read_offset;
-						read_offset += span[2] - 1;
-					} else {
-						op_len = read_len;
-						read_len = 0;
-					}
-					buildCigar(cig_string, 0, op_len, 'M', 0);
-
 				}
 
-			} else if (posread <= span[1]) {  // Begin mapping coordinates for read  // MOVE OUTSIDE LOOP?!
+				read_offset = span[1] - span[0] + 1;
+				if (read_len > read_offset){
+					op_len = read_offset;
+					read_offset = (negstrand) ? span[2] : read_offset + span[2] - 1;
+				} else {
+					op_len = read_len;
+					if (negstrand) {
+						posread = start_coord - read_len + 1;
+					}
+				}
+				read_len -= op_len;
+				buildCigar(cig_string, negstrand, op_len, 'M', 0);
+
+			} else if (posread <= span[1]) {  // Begin mapping coordinates for read
 
 				if (posread < span[0]) {
-
-					read_offset = span[0] - posread;
-					op_len = read_offset;
-					read_len -= read_offset;
-					buildCigar(cig_string, 0, op_len, 'S', 4);
-					
+					op_len = span[0] - posread;
+					read_len -= op_len;
+					buildCigar(cig_string, false, op_len, 'S', 4);
 				}
 
-				if (span[2] < 0) {  // Negative strand
-
-					if ((posread + slen1 - 1) > span[1]) {
-						read_offset = span[1] - posread - read_offset + 1;
-						op_len = read_offset;
-						read_len -= read_offset;
+				read_offset = posread + slen1 - span[1] - 1;
+				if (read_offset > 0) {
+					op_len = read_len - read_offset;
+					if (negstrand) {
 						read_offset = span[2];
 					} else {
-						op_len = read_len;
-						read_len = 0;
-						posread = span[1] - span[2] - posread - slen1 + 1;
-					}
-					buildCigar(cig_string, 1, op_len, 'M', 0);
-
-				} else {  // Positive strand
-
-					if ((posread + slen1 - 1) > span[1]) {
-						read_offset = span[1] - posread - read_offset + 1;
-						op_len = read_offset;
-						read_len -= read_offset;
 						read_offset = span[2] + span[1] - span[0];
-					} else {
-						op_len = read_len;
-						read_len = 0;
+						posread += span[2] - span[0];
 					}
-					posread += span[2] - span[0];
-					buildCigar(cig_string, 0, op_len, 'M', 0);
-
+				} else {
+					op_len = read_len;
+					posread = (negstrand) ? span[2] - read_offset : posread + span[2] - span[0];
 				}
+				read_len -= op_len;
+				buildCigar(cig_string, negstrand, op_len, 'M', 0);
+
 			}
+
 		}
 
 		if (mate_len != 0) {  // Not done mapping coordinates for mate
+
 			if (mate_len != slen2) {  // In the process of mapping coordinates for mate
 
-				if (span[2] < 0) {  // Negative strand
-
-					mate_offset = span[1] - span[0] + 1;
-					if (mate_len > mate_offset) {
-						mate_len -= mate_offset;
-						mate_offset = span[2];
-					} else {
-						posmate = mate_offset - span[2] - mate_len;
-						mate_len = 0;
+				mate_offset = span[1] - span[0] + 1;
+				if (mate_len > mate_offset) {
+					mate_len -= mate_offset;
+					mate_offset = (negstrand) ? span[2] : mate_offset + span[2] - 1;
+				} else {
+					if (negstrand) {
+						posmate = span[2] + mate_offset - mate_len;
 					}
-
-				} else {  // Positive strand
-
-					mate_offset = span[1] - span[0] + 1;
-					if (mate_len > mate_offset){
-						mate_len -= mate_offset;
-						mate_offset += span[2] - 1;
-					} else {
-						mate_len = 0;
-					}
-
+					mate_len = 0;
 				}
 
 			} else if (posmate <= span[1]) {  // Begin mapping coordinates for mate
 
 				if (posmate < span[0]) {
-					mate_offset = span[0] - posmate;
-					mate_len -= mate_offset;
+					mate_len -= span[0] - posmate;
 				}
 
-				if (span[2] < 0) {  // Negative strand
-
-					if ((posmate + slen2 - 1) > span[1]) {
-						mate_len -= span[1] - posmate - mate_offset + 1;
+				mate_offset = posmate + slen2 - span[1] - 1;
+				if (mate_offset > 0) {
+					mate_len = mate_offset;
+					if (negstrand) {
 						mate_offset = span[2];
 					} else {
-						mate_len = 0;
-						posmate = span[1] - span[2] - posmate - slen2 + 1;
-					}
-
-				} else {  // Positive strand
-
-					if ((posmate + slen2 - 1) > span[1]) {
-						mate_len -= span[1] - posmate - mate_offset + 1;
 						mate_offset = span[2] + span[1] - span[0];
-					} else {
-						mate_len = 0;
+						posmate += span[2] - span[0];
 					}
-					posmate += span[2] - span[0];
-
+				} else {
+					mate_len = 0;
+					posmate = (negstrand) ? span[2] - mate_offset : posmate + span[2] - span[0];
 				}
 
 			}
+
 		}
 
 		if ((read_len == 0) && (mate_len == 0)) {  // Both have been mapped
@@ -313,22 +311,77 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	}
 
 	if (read_len != 0) {  // Account for read overhangs
-		if (read_offset < 0) {  // Negative strand
-
-			op_len = read_len;
-			posread = -read_offset - read_len;
-			buildCigar(cig_string, 1, op_len, 'S', 4);
-
-		} else {  // Positive strand
-			
-			op_len = read_len;
-			buildCigar(cig_string, 0, op_len, 'S', 4);
-
+		if (negstrand) {
+			posread = read_offset - read_len;
 		}
+		buildCigar(cig_string, negstrand, read_len, 'S', 4);
 	}
 
-	if ((mate_len != 0) && (mate_offset < 0)) {  // Account for mate overhangs on negative strand
-		posmate = -mate_offset - mate_len;
+	if ((mate_len != 0) && negstrand) {  // Account for mate overhangs on negative strand
+		posmate = mate_offset - mate_len;
+	}
+
+	if (outputbed && (intron_flag != intronNone)) {
+
+		auto &span = std::get<4>(map_entry->second)[0];
+		start_coord = span[2];
+		end_coord = span[2] + span[1] - span[0];
+
+		switch (intron_flag) {
+			case intronStart: {
+				if ((posread >= start_coord) && (posread <= start_coord + 50) &&
+					(posread + slen1 >= start_coord + 50) && (posread + slen1 <= end_coord) &&
+					(posmate >= start_coord + 50) && (posmate + slen2 <= end_coord)) {
+					std::get<1>(key) = start_coord + 39;
+					std::get<2>(key) = start_coord + 59;
+					if (junction_map.find(key) == junction_map.end()) {
+						junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', 10, 10));  // Trim trans_name at `::`, add `-` and junction coordinate!
+					} else {
+						std::get<1>(junction_map[key])++;
+					}
+				}
+				break;
+			}
+			case intronEnd: {
+				if ((posread >= start_coord) && (posread <= end_coord - 50) &&
+					(posread + slen1 >= end_coord - 50) && (posread + slen1 <= end_coord) &&
+					(posmate >= start_coord) && (posmate + slen2 <= end_coord - 50)) {
+					std::get<1>(key) = end_coord - 60;
+					std::get<2>(key) = end_coord - 40;
+					if (junction_map.find(key) == junction_map.end()) {
+						junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', 10, 10));
+					} else {
+						std::get<1>(junction_map[key])++;
+					}
+				}
+				break;
+			}
+			case intronFull: {
+				if ((posread >= start_coord) && (posread <= start_coord + 50) &&
+					(posread + slen1 >= start_coord + 50) && (posread + slen1 <= end_coord - 50) &&
+					(posmate >= start_coord + 50) && (posmate + slen2 <= end_coord - 50)) {
+					std::get<1>(key) = start_coord + 39;
+					std::get<2>(key) = start_coord + 59;
+					if (junction_map.find(key) == junction_map.end()) {
+						junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', 10, 10));
+					} else {
+						std::get<1>(junction_map[key])++;
+					}
+				}
+				if ((posread >= start_coord + 50) && (posread <= end_coord - 50) &&
+					(posread + slen1 >= end_coord - 50) && (posread + slen1 <= end_coord) &&
+					(posmate >= start_coord + 50) && (posmate + slen2 <= end_coord - 50)) {
+					std::get<1>(key) = end_coord - 60;
+					std::get<2>(key) = end_coord - 40;
+					if (junction_map.find(key) == junction_map.end()) {
+						junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', 10, 10));
+					} else {
+						std::get<1>(junction_map[key])++;
+					}
+				}
+				break;
+			}
+		}
 	}
 
 	if (!sortedbam) {
@@ -432,11 +485,8 @@ void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int f
 	int value = 1;
 	memcpy(outBamBuffer + n_bytes + 3, &value, sizeof(int));
 	n_bytes += 3 + sizeof(int);
-	if (strand < 0) {
-		memcpy(outBamBuffer + n_bytes, "XSA-", 4);
-	} else {
-		memcpy(outBamBuffer + n_bytes, "XSA+", 4);
-	}
+	memcpy(outBamBuffer + n_bytes, (strand < 0) ? "XSA-": "XSA+", 4);      // Which to use?!
+	//memcpy(outBamBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);
 	n_bytes += 4;
 
 	// block_size

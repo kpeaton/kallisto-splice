@@ -328,7 +328,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int umi_flag = 0;
   int sbam_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:b:e:";
+  const char *opt_string = "t:i:l:s:o:b:e:d:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -345,6 +345,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"sd", required_argument, 0, 's'},
     {"output-dir", required_argument, 0, 'o'},
 	{"exon-coords", required_argument, 0, 'e'},
+	{"bed-out", required_argument, 0, 'd'},
     {0,0,0,0}
   };
   int c;
@@ -386,6 +387,10 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     }
 	case 'e': {
 		opt.exon_coords_file = optarg;
+		break;
+	}
+	case 'd': {
+		opt.bed_file = optarg;
 		break;
 	}
     default: break;
@@ -1040,7 +1045,8 @@ void usagePseudo(bool valid_input = true) {
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
        << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
 	   << "    --sortedbam               Output a sorted BAM format to stdout" << endl
-	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl;
+	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl
+	   << "-d  --bed-out=FILE            File name for junction BED output" << endl;
 
 }
 

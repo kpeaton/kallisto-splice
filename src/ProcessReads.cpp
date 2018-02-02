@@ -199,6 +199,29 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 
 	  }
 
+	  // Output junction BED
+
+	  if (MP.output_handler.outputbed) {
+
+		  std::cerr << "writing bed output ..."; std::cerr.flush();
+
+		  std::fstream bed_out(opt.bed_file.c_str(), std::fstream::out | std::fstream::trunc);
+		  for (auto &entry : MP.output_handler.junction_map) {
+
+			  int start_coord = std::get<1>(entry.first);
+			  int end_coord = std::get<2>(entry.first);
+
+			  bed_out << std::get<0>(entry.first) << "\t" << start_coord << "\t" << end_coord << "\t";
+			  bed_out << std::get<0>(entry.second) << "\t" << std::get<1>(entry.second) << "\t" << std::get<2>(entry.second) << "\t";
+			  bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(entry.second) << "," << std::get<4>(entry.second) << "\t0,0,0\n";
+
+		  }
+		  bed_out.close();
+
+		  std::cerr << " done" << std::endl;
+
+	  }
+
   }
 
   //std::cout << "betterCount = " << betterCount << ", out of betterCand = " << betterCand << std::endl;
