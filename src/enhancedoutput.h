@@ -123,6 +123,7 @@ public:
 
 	bool getSamData(std::string &ref_name, char *cig, int& strand, bool mapped, int &posread, int &posmate, int slen1, int slen2);
 	void buildCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char, uint cig_int);
+	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2);
 	void outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, const char *seq, const char *qual, int nmap, int strand);
 	void outputSortedBam();
 
