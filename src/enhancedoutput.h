@@ -92,7 +92,7 @@ public:
 	// Exon coordinate map
 	bool enhancedoutput;
 	static enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
-	typedef std::map<std::string, std::tuple<std::string, std::string, int, IntronFlag, std::vector<std::vector<int>>>> ExonMap;
+	typedef std::map<std::string, std::tuple<std::string, std::string, int, IntronFlag, int, int, std::vector<std::vector<int>>>> ExonMap;
 	ExonMap exon_map;
 
 	// SAM/BAM output data
@@ -108,7 +108,8 @@ public:
 	// BED output data
 	bool outputbed;
 	std::string bed_file;
-	std::map<std::tuple<std::string, int, int>, std::tuple<std::string, int, char, int, int>> junction_map;
+	typedef std::tuple<std::string, int, int> JunctionKey;
+	std::map<JunctionKey, std::tuple<std::string, int, char, int, int, int, int>> junction_map;
 
 	// Temporary and buffer storage for mapping reads and BAM output
 	std::set<std::string> gene_list;
@@ -123,7 +124,7 @@ public:
 
 	bool getSamData(std::string &ref_name, char *cig, int& strand, bool mapped, int &posread, int &posmate, int slen1, int slen2);
 	void buildCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char, uint cig_int);
-	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2);
+	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end);
 	void outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, const char *seq, const char *qual, int nmap, int strand);
 	void outputSortedBam();
 

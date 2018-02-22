@@ -208,11 +208,25 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 		  std::fstream bed_out(opt.bed_file.c_str(), std::fstream::out | std::fstream::trunc);
 		  for (auto &entry : MP.output_handler.junction_map) {
 
-			  int start_coord = std::get<1>(entry.first);
-			  int end_coord = std::get<2>(entry.first);
+			  EnhancedOutput::JunctionKey key = entry.first;
+			  int start_coord = std::get<1>(key);
+			  int end_coord = std::get<2>(key);
+			  std::string trans_name = std::get<0>(entry.second);
+			  if (std::get<5>(entry.second) >= 0) {
+				  std::get<1>(key) = std::get<5>(entry.second);
+				  std::get<2>(key) = std::get<6>(entry.second);
+				  auto pair_entry = MP.output_handler.junction_map.find(key);
+				  if (pair_entry == MP.output_handler.junction_map.end()) {
+					  continue;
+				  }
+				  std::string pair_name = std::get<0>(pair_entry->second);
+				  if (trans_name.substr(0, trans_name.find("-")) != pair_name.substr(0, pair_name.find("-"))) {
+					  continue;
+				  }
+			  }
 
-			  bed_out << std::get<0>(entry.first) << "\t" << start_coord << "\t" << end_coord << "\t";
-			  bed_out << std::get<0>(entry.second) << "\t" << std::get<1>(entry.second) << "\t" << std::get<2>(entry.second) << "\t";
+			  bed_out << std::get<0>(key) << "\t" << start_coord << "\t" << end_coord << "\t";
+			  bed_out << trans_name << "\t" << std::get<1>(entry.second) << "\t" << std::get<2>(entry.second) << "\t";
 			  bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(entry.second) << "," << std::get<4>(entry.second) << "\t0,0,0\n";
 
 		  }

@@ -59,19 +59,30 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 		std::string last_key;
 		while (file >> row) {
 			if (last_key == row[0]){
-				std::get<4>(exon_map[last_key]).emplace_back(std::vector<int>({ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) }));
+				std::get<6>(exon_map[last_key]).emplace_back(std::vector<int>({ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) }));
 			} else {
 				IntronFlag intron_flag = intronNone;
+				int segment_start = std::stoi(row[2]);
+				int segment_end = std::stoi(row[3]);
+				int genome_position = std::stoi(row[4]);
+				int pair_start = -1;
+				int pair_end = -1;
 				if (row[0].back() == ')') {
-					if ((last_key.back() == ')') && (last_key.substr(0, last_key.find("::") + 2) == row[0].substr(0, row[0].find("::") + 2))) {
+					if ((last_key.back() == ')') && (last_key.substr(0, last_key.find("::") + 2) == row[0].substr(0, row[0].find("::") + 2))) {  // Store pairs together?!
 						intron_flag = intronEnd;
+						int start_coord = std::get<6>(exon_map[last_key])[0][2];
+						int end_coord = genome_position + segment_end - segment_start;
+						pair_start = start_coord + 39;
+						pair_end = start_coord + 59;
 						std::get<3>(exon_map[last_key]) = intronStart;
+						std::get<4>(exon_map[last_key]) = end_coord - 60;
+						std::get<5>(exon_map[last_key]) = end_coord - 40;
 					} else {
 						intron_flag = intronFull;
 					}
 				}
 				last_key = row[0];
-				exon_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, std::vector<std::vector<int>>({ std::vector<int>({ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) }) })));
+				exon_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, pair_start, pair_end, std::vector<std::vector<int>>({ std::vector<int>({ segment_start, segment_end, genome_position }) })));
 			}
 		}
 		file.close();
@@ -87,7 +98,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 			}
 
 			int strand = std::get<2>(map_entry->second);
-			auto &entry = std::get<4>(map_entry->second);
+			auto &entry = std::get<6>(map_entry->second);
 			int len;
 			if (strand < 0) {
 				len = entry.front()[2] + entry.front()[1] - entry.front()[0];
@@ -193,13 +204,10 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 	int read_rem = slen1;
 	int mate_rem = (posmate == 0) ? 0 : slen2;
 	int read_offset = 0;
-	int mate_offset = 0;
 	int start_coord = 0;
 	int end_coord = 0;
 
-	std::tuple<std::string, int, int> key = std::make_tuple(ref_name, 0, 0);
-
-	for (auto &span : std::get<4>(map_entry->second)) {
+	for (auto &span : std::get<6>(map_entry->second)) {
 
 		if (read_rem > 0) {  // Not done mapping read
 
@@ -217,7 +225,7 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 
 				// Store BED file information:
 				if (outputbed) {
-					mapJunction(ref_name, trans_name, negstrand, start_coord, end_coord, 0, 0);
+					mapJunction(ref_name, trans_name, negstrand, start_coord, end_coord, 0, 0, -1, -1);
 				}
 
 				// Find overlap with exon segment:
@@ -269,21 +277,13 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 			if (mate_rem < slen2) {  // In the process of mapping mate
 
 				mate_rem -= span[1] - span[0] + 1;
-				if (mate_rem > 0) {
-					mate_offset = span[2];
-				} else {
-					posmate = span[2] - mate_rem;
-				}
+				posmate = span[2] - mate_rem;
 
 			} else if (posmate <= span[1]) {  // Begin mapping mate
 
 				if (negstrand) {
 					mate_rem = posmate + slen2 - span[1] - 1;
-					if (mate_rem > 0) {
-						mate_offset = span[2];
-					} else {
-						posmate = span[2] - mate_rem;
-					}
+					posmate = span[2] - mate_rem;
 				} else {
 					mate_rem = 0;
 					posmate += span[2] - span[0];
@@ -306,23 +306,25 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 		buildCigar(cig_string, negstrand, read_rem, 'S', 4);
 	}
 
-	if ((mate_rem > 0) && negstrand) {  // Account for mate overhangs on negative strand
-		posmate = mate_offset - mate_rem;
+	if (mate_rem == slen2) {  // Account for mate completely outside segment (is this even necessary?!)
+		std::cerr << "mate outside segment: " << trans_name << std::endl;
+		auto &span = std::get<6>(map_entry->second).back();
+		posmate = (negstrand) ? span[2] - posmate - slen2 + span[1] + 1 : posmate + span[2] - span[0];
 	}
 
 	if (outputbed && (intron_flag != intronNone)) {
 
-		auto &span = std::get<4>(map_entry->second)[0];
+		auto &span = std::get<6>(map_entry->second)[0];
 		start_coord = span[2];
 		end_coord = span[2] + span[1] - span[0];
-		trans_name = trans_name.substr(0, trans_name.find("::") - 1) + '-';
+		trans_name = trans_name.substr(0, trans_name.find("::")) + '-';
 
 		switch (intron_flag) {  // Could perhaps make this more compact and less redundant
 			case intronStart: {
 				if ((posread >= start_coord) && (posread < start_coord + 50) &&
 					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord) &&
 					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10);
+					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, std::get<4>(map_entry->second), std::get<5>(map_entry->second));
 				}
 				break;
 			}
@@ -330,7 +332,7 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 				if ((posread >= start_coord) && (posread < end_coord - 50) &&
 					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
 					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10);
+					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, std::get<4>(map_entry->second), std::get<5>(map_entry->second));
 				}
 				break;
 			}
@@ -338,12 +340,12 @@ bool EnhancedOutput::getSamData(std::string &ref_name, char *cig, int& strand, b
 				if ((posread >= start_coord) && (posread < start_coord + 50) &&
 					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord - 50) &&
 					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10);
+					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, end_coord - 60, end_coord - 40);
 				}
 				if ((posread >= start_coord + 50) && (posread < end_coord - 50) &&
 					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
 					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10);
+					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, start_coord + 39, start_coord + 59);
 				}
 				break;
 			}
@@ -389,11 +391,11 @@ void EnhancedOutput::buildCigar(std::string &cig_string, bool prepend, uint op_l
 	}
 }
 
-void EnhancedOutput::mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2)
+void EnhancedOutput::mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end)
 {
-	std::tuple<std::string, int, int> key = std::make_tuple(chrom_name, start_coord, end_coord);
+	JunctionKey key = std::make_tuple(chrom_name, start_coord, end_coord);
 	if (junction_map.find(key) == junction_map.end()) {
-		junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', size1, size2));
+		junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', size1, size2, pair_start, pair_end));
 	} else {
 		std::get<1>(junction_map[key])++;
 	}
