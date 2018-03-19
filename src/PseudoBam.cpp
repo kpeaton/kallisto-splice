@@ -183,6 +183,8 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 				continue;  // Add option to output unmapped reads?!
 			}
 
+//			output_handler.processAlignment(ref_name, flag, posread, slen1, posmate, slen2, tlen, n1, mapq, seq, qual, nmap, id);
+
 			int strand = 0;
 			std::vector<uint> bam_cigar;
 			uint align_len = 0;
