@@ -169,6 +169,10 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
   }
 
   // for each file
+  std::chrono::time_point<std::chrono::system_clock> start, end;
+  std::chrono::duration<double> elapsed_seconds;
+
+  start = std::chrono::system_clock::now();
   std::cerr << "[quant] finding pseudoalignments for the reads ..."; std::cerr.flush();
 
   MasterProcessor MP(index, opt, tc);
@@ -176,23 +180,39 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
   numreads = MP.numreads;
   nummapped = MP.nummapped;
   std::cerr << " done" << std::endl;
+  
+  end = std::chrono::system_clock::now();
+  elapsed_seconds = end - start;
+  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
 
   if (MP.output_handler.enhancedoutput) {
 
 	  // Output sorted BAM
 
 	  if (MP.output_handler.sortedbam) {
+		  start = std::chrono::system_clock::now();
+
 		  std::cerr << "sorting bam output ..."; std::cerr.flush();
 		  MP.output_handler.outputSortedBam();
 		  std::cerr << " done" << std::endl;
+
+		  end = std::chrono::system_clock::now();
+		  elapsed_seconds = end - start;
+		  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
 	  }
 
 	  // Output junction BED
 
 	  if (MP.output_handler.outputbed) {
+		  start = std::chrono::system_clock::now();
+
 		  std::cerr << "writing bed output ..."; std::cerr.flush();
 		  MP.output_handler.outputJunction();
 		  std::cerr << " done" << std::endl;
+
+		  end = std::chrono::system_clock::now();
+		  elapsed_seconds = end - start;
+		  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
 	  }
 
   }

@@ -43,21 +43,11 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
 	std::vector<int> v;
 
-	if (output_handler.enhancedoutput) {  // Trim u to remove repeated genes
+	// Trim u to remove repeated genes
+	if (output_handler.enhancedoutput) {
 		std::set<std::string> gene_list;
-
 		for (auto tr : u) {
-			std::string ref_name = index.target_names_[tr];
-			auto map_entry = output_handler.exon_map.find(ref_name);
-
-			if (map_entry == output_handler.exon_map.end()) {
-				std::cerr << "Transcript name could not be found in exon coordinate file: " << ref_name << std::endl;
-				exit(1);
-			}
-
-			const char *gene_name = std::get<0>(map_entry->second).c_str();
-			if (gene_list.find(gene_name) == gene_list.end()) {
-				gene_list.emplace(gene_name);
+			if (gene_list.emplace(std::get<0>(output_handler.gene_map[index.target_names_[tr]])).second) {
 				v.push_back(tr);
 			}
 		}
@@ -168,44 +158,19 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		int mapq = (!v1.empty()) ? 255 : 0;
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
-		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
+		if (output_handler.enhancedoutput) {  // Convert to genome coordinates
+
+			if (mapped) {  // Add option to output unmapped reads?!
+				output_handler.processAlignment(ref_name, flag, posread, slen1, posmate, slen2, tlen, n1, mapq, seq, qual, nmap, id);
+			}
+
+		} else {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
 
 			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 			if (v1.empty()) {
-				break; // only report primary alignment
-			}
-
-		} else {  // Convert to genome coordinates and build CIGAR string
-
-			if (!mapped) {
-				continue;  // Add option to output unmapped reads?!
-			}
-
-//			output_handler.processAlignment(ref_name, flag, posread, slen1, posmate, slen2, tlen, n1, mapq, seq, qual, nmap, id);
-
-			int strand = 0;
-			std::vector<uint> bam_cigar;
-			uint align_len = 0;
-
-			output_handler.processAlignment(ref_name, strand, posread, posmate, slen1, slen2, cig, bam_cigar, align_len);
-
-			if (output_handler.sortedbam) {
-
-				output_handler.outputBamAlignment(ref_name, posread, flag, slen1, posmate, tlen, n1, bam_cigar, align_len, seq, qual, nmap, strand, id);
-
-			} else {
-
-				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
-				if (strand == 0) {
-					printf("\n");
-				} else if (strand < 0) {
-					printf("\tXS:A:-\n");
-				} else {
-					printf("\tXS:A:+\n");
-				}
-
+				break;  // Only report primary alignment
 			}
 
 		}
@@ -266,42 +231,19 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		int mapq = (!v2.empty()) ? 255 : 0;
 		const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
 		const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
-		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
+		if (output_handler.enhancedoutput) {  // Convert to genome coordinates
+
+			if (mapped) {  // Add option to output unmapped reads?!
+				output_handler.processAlignment(ref_name, flag, posread, slen2, posmate, slen1, tlen, n2, mapq, seq, qual, nmap, id);
+			}
+
+		} else {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
 
 			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
 			if (v2.empty()) {
-				break; // only print primary alignment
-			}
-
-		} else {  // Convert to genome coordinates and build CIGAR string
-
-			if (!mapped) {
-				continue;  // Add option to output unmapped reads?!
-			}
-
-			int strand = 0;
-			std::vector<uint> bam_cigar;
-			uint align_len = 0;
-
-			output_handler.processAlignment(ref_name, strand, posread, posmate, slen2, slen1, cig, bam_cigar, align_len);
-
-			if (output_handler.sortedbam) {
-
-				output_handler.outputBamAlignment(ref_name, posread, flag, slen2, posmate, tlen, n2, bam_cigar, align_len, seq, qual, nmap, strand, id);
-
-			} else {
-
-				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", n2, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
-				if (strand == 0) {
-					printf("\n");
-				} else if (strand < 0) {
-					printf("\tXS:A:-\n");
-				} else {
-					printf("\tXS:A:+\n");
-				}
-
+				break;  // Only print primary alignment
 			}
 
 		}
@@ -345,40 +287,17 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		std::string ref_name = index.target_names_[tr];
 		const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
 		const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
-		if (!output_handler.enhancedoutput) {  // Default calculations when not using enhanced output
+		if (output_handler.enhancedoutput) {  // Convert to genome coordinates
+
+			if (mapped) {  // Add option to output unmapped reads?!
+				output_handler.processAlignment(ref_name, flag, posread, slen1, 0, 0, 0, n1, 255, seq, qual, nmap, id);
+			}
+
+		} else {  // Default calculations when not using enhanced output
 
 			getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, dummy, slen1, index.target_lens_[tr]);
 
 			printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
-
-		} else {  // Convert to genome coordinates and build CIGAR string
-
-			if (!mapped) {
-				continue;  // Add option to output unmapped reads?!
-			}
-
-			int strand = 0;
-			std::vector<uint> bam_cigar;
-			uint align_len = 0;
-
-			output_handler.processAlignment(ref_name, strand, posread, dummy, slen1, 0, cig, bam_cigar, align_len);
-
-			if (output_handler.sortedbam) {
-
-				output_handler.outputBamAlignment(ref_name, posread, flag, slen1, dummy, 0, n1, bam_cigar, align_len, seq, qual, nmap, strand, id);
-
-			} else {
-
-				printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d", n1, flag, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
-				if (strand == 0) {
-					printf("\n");
-				} else if (strand < 0) {
-					printf("\tXS:A:-\n");
-				} else {
-					printf("\tXS:A:+\n");
-				}
-
-			}
 
 		}
 

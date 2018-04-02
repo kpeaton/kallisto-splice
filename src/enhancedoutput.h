@@ -92,11 +92,11 @@ public:
 	EnhancedOutput(KmerIndex &index, const ProgramOptions& opt);
 	~EnhancedOutput();
 
-	// Exon coordinate map:
+	// Gene coordinate map:
 	bool enhancedoutput;
 	static enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
-	typedef std::map<std::string, std::tuple<std::string, std::string, int, IntronFlag, int, int, std::vector<std::vector<int>>>> ExonMap;  // Still necessary?!
-	ExonMap exon_map;
+	typedef std::tuple<std::string, std::string, int, IntronFlag, int, int, std::vector<std::vector<int>>> GeneData;
+	std::map<std::string, GeneData> gene_map;
 
 	// General SAM/BAM output data:
 	bool sortedbam;
@@ -105,29 +105,26 @@ public:
 	std::string sam_header;
 	std::string sort_dir;
 	char* outBamBuffer;
-	BGZF *bam_stream;
+	BGZF* bam_stream;
 	int num_threads;
 	int current_sorting_index;
 	std::mutex sorting_lock;
 	std::vector<std::vector<std::fstream>> sorting_streams;
 	std::vector<std::vector<uint>> num_alignments;
-	//typedef std::map<std::string, std::tuple<std::vector<int>, uint64_t, std::fstream*>> ChromoMap;  // Add this?
-	//ChromoMap chromo_map;
 
 	// BED output data:
 	bool outputbed;
 	std::string bed_file;
 	typedef std::tuple<std::string, int, int> JunctionKey;
-	std::map<JunctionKey, std::tuple<std::string, int, char, int, int, int, int>> junction_map;
+	typedef std::map<JunctionKey, std::tuple<std::string, int, char, int, int, int, int>> JunctionMap;
+	std::vector<JunctionMap> junction_map;
 
 	// Methods:
-//	void processAlignment(std::string ref_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *n1, int mapq, const char *seq, const char *qual, int nmap, int id)
-	void processAlignment(std::string &ref_name, int& strand, int &posread, int &posmate, int slen1, int slen2, char *cig, std::vector<uint> &bam_cigar, uint &align_len);
-	void buildSAMCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char);
+	void processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id);
 	void buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int);
-	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end);
+	void buildSAMCigar(std::string &sam_cigar, bool prepend, uint op_len, const char cig_char);
+	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end, int id);
 	void outputJunction();
-	void outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, std::vector<uint> bam_cigar, uint align_len, const char *seq, const char *qual, int nmap, int strand, int id);
 	void outputSortedBam();
 	void fetchChromosome();
 	void sortChromosome(int ref_ID);

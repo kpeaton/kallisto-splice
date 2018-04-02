@@ -60,7 +60,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 		std::string last_key;
 		while (file >> row) {
 			if (last_key == row[0]) {
-				std::get<6>(exon_map[last_key]).emplace_back(std::vector<int>{ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) });
+				std::get<6>(gene_map[last_key]).emplace_back(std::vector<int>{ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) });
 			} else {
 				IntronFlag intron_flag = intronNone;
 				int segment_start = std::stoi(row[2]);
@@ -71,35 +71,36 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				if (row[0].back() == ')') {
 					if ((last_key.back() == ')') && (last_key.substr(0, last_key.find("::") + 2) == row[0].substr(0, row[0].find("::") + 2))) {  // Store pairs together?!
 						intron_flag = intronEnd;
-						int start_coord = std::get<6>(exon_map[last_key])[0][2];
+						int start_coord = std::get<6>(gene_map[last_key])[0][2];
 						int end_coord = genome_position + segment_end - segment_start;
 						pair_start = start_coord + 39;
 						pair_end = start_coord + 59;
-						std::get<3>(exon_map[last_key]) = intronStart;
-						std::get<4>(exon_map[last_key]) = end_coord - 60;
-						std::get<5>(exon_map[last_key]) = end_coord - 40;
+						std::get<3>(gene_map[last_key]) = intronStart;
+						std::get<4>(gene_map[last_key]) = end_coord - 60;
+						std::get<5>(gene_map[last_key]) = end_coord - 40;
 					} else {
 						intron_flag = intronFull;
 					}
 				}
 				last_key = row[0];
-				exon_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, pair_start, pair_end, std::vector<std::vector<int>>{ std::vector<int>{ segment_start, segment_end, genome_position } }));
+				gene_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, pair_start, pair_end, std::vector<std::vector<int>>{ std::vector<int>{ segment_start, segment_end, genome_position } }));
 			}
 		}
 		file.close();
 
 		// Collect information for the bam header:
-		for (int i = 0; i < index.num_trans; i++) {
+		for (int tr = 0; tr < index.num_trans; tr++) {
 
-			const char * key = index.target_names_[i].c_str();
-			ExonMap::const_iterator map_entry = exon_map.find(key);
-			if (map_entry == exon_map.end()) {
+			std::string key = index.target_names_[tr];
+			auto map_entry = gene_map.find(key);
+			if (map_entry == gene_map.end()) {
 				std::cerr << "Transcript name could not be found in exon coordinate file: " << key << std::endl;
 				exit(1);
 			}
 
-			int strand = std::get<2>(map_entry->second);
-			auto &entry = std::get<6>(map_entry->second);
+			GeneData exon_data = map_entry->second;
+			int strand = std::get<2>(exon_data);
+			auto &entry = std::get<6>(exon_data);
 			int len;
 			if (strand < 0) {
 				len = entry.front()[2] + entry.front()[1] - entry.front()[0];
@@ -107,7 +108,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				len = entry.back()[2] + entry.back()[1] - entry.back()[0];
 			}
 
-			key = std::get<1>(map_entry->second).c_str();
+			key = std::get<1>(exon_data);
 			if (ref_seq_map.find(key) == ref_seq_map.end()) {
 				ref_seq_map.emplace(key, std::vector<int>{ len, -1 });
 			} else {
@@ -129,17 +130,18 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 			for (auto &entry : ref_seq_map) {
 
 				header_stream << "@SQ\tSN:" << entry.first << "\tLN:" << entry.second[0] << "\n";
-				entry.second[1] = ref_ID++;
 				std::string sort_file = sort_dir + "/" + std::to_string(ref_ID) + "_";
 
 				for (int thread = 0; thread < num_threads; thread++) {
-					if (ref_ID == 1) {
+					if (ref_ID == 0) {
 						sorting_streams.emplace_back(std::vector<std::fstream>{ });
 						num_alignments.emplace_back(std::vector<uint>{ });
 					}
 					sorting_streams[thread].emplace_back(std::fstream{ sort_file + std::to_string(thread), stream_flags });
 					num_alignments[thread].emplace_back(0);
 				}
+
+				entry.second[1] = ref_ID++;
 
 			}
 
@@ -162,6 +164,9 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 		if (outputbed) {
 			bed_file = opt.bed_file;
+			for (int thread = 0; thread < num_threads; thread++) {
+				junction_map.emplace_back(JunctionMap{ });
+			}
 		}
 
 	} else if (opt.pseudobam) {
@@ -180,16 +185,17 @@ EnhancedOutput::~EnhancedOutput()
 	}
 }
 
-void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &posread, int &posmate, int slen1, int slen2, char *cig, std::vector<uint> &bam_cigar, uint &align_len)
+void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id)
 {
-	std::string trans_name = ref_name;
-	ExonMap::const_iterator map_entry = exon_map.find(ref_name);
-	ref_name = std::get<1>(map_entry->second);
-	strand = (std::get<2>(map_entry->second) < 0) ? -1 : 1;  // Use trsense from findPosition instead?!
+	GeneData gene_data = gene_map[trans_name];
+	std::string ref_name = std::get<1>(gene_data);
+	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;  // Use trsense from findPosition instead?!
 	bool negstrand = strand < 0;
-	IntronFlag intron_flag = std::get<3>(map_entry->second);
+	IntronFlag intron_flag = std::get<3>(gene_data);
 
-	std::string cig_string;
+	std::vector<uint> bam_cigar;
+	uint align_len = 0;
+	std::string sam_cigar;
 	uint op_len;
 	int read_rem = slen1;
 	int mate_rem = (posmate == 0) ? 0 : slen2;
@@ -197,7 +203,8 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 	int start_coord = 0;
 	int end_coord = 0;
 
-	for (auto &span : std::get<6>(map_entry->second)) {
+	// Map alignment to chromosome coordinates
+	for (auto &span : std::get<6>(gene_data)) {
 
 		if (read_rem > 0) {  // Not done mapping read
 
@@ -216,12 +223,12 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, end_coord - start_coord - 1, 3);
 				} else{
-					buildSAMCigar(cig_string, negstrand, end_coord - start_coord - 1, 'N');
+					buildSAMCigar(sam_cigar, negstrand, end_coord - start_coord - 1, 'N');
 				}
 
 				// Store BED file information:
 				if (outputbed) {
-					mapJunction(ref_name, trans_name, negstrand, start_coord, end_coord, 0, 0, -1, -1);
+					mapJunction(ref_name, trans_name, negstrand, start_coord, end_coord, 0, 0, -1, -1, id);
 				}
 
 				// Find overlap with exon segment:
@@ -241,7 +248,7 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
 				} else{
-					buildSAMCigar(cig_string, negstrand, op_len, 'M');
+					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
 				}
 
 			} else if (posread <= span[1]) {  // Begin mapping read
@@ -253,7 +260,7 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 					if (sortedbam) {
 						buildBAMCigar(bam_cigar, align_len, false, op_len, 4);
 					} else{
-						buildSAMCigar(cig_string, false, op_len, 'S');
+						buildSAMCigar(sam_cigar, false, op_len, 'S');
 					}
 				}
 
@@ -277,7 +284,7 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
 				} else{
-					buildSAMCigar(cig_string, negstrand, op_len, 'M');
+					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
 				}
 
 			}
@@ -318,19 +325,20 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 		if (sortedbam) {
 			buildBAMCigar(bam_cigar, align_len, negstrand, read_rem, 4);
 		} else{
-			buildSAMCigar(cig_string, negstrand, read_rem, 'S');
+			buildSAMCigar(sam_cigar, negstrand, read_rem, 'S');
 		}
 	}
 
-	if (mate_rem == slen2) {  // Account for mate completely outside segment (is this even necessary?!)
+	if ((mate_rem == slen2) && (posmate > 0)) {  // Account for mate completely outside segment (is this even necessary?!)
 		std::cerr << "mate outside segment: " << trans_name << std::endl;
-		auto &span = std::get<6>(map_entry->second).back();
+		auto &span = std::get<6>(gene_data).back();
 		posmate = (negstrand) ? span[2] - posmate - slen2 + span[1] + 1 : posmate + span[2] - span[0];
 	}
 
+	// Store junction information
 	if (outputbed && (intron_flag != intronNone)) {
 
-		auto &span = std::get<6>(map_entry->second)[0];
+		auto &span = std::get<6>(gene_data)[0];
 		start_coord = span[2];
 		end_coord = span[2] + span[1] - span[0];
 		trans_name = trans_name.substr(0, trans_name.find("::")) + '-';
@@ -340,7 +348,7 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if ((posread >= start_coord) && (posread < start_coord + 50) &&
 					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord) &&
 					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, std::get<4>(map_entry->second), std::get<5>(map_entry->second));
+					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, std::get<4>(gene_data), std::get<5>(gene_data), id);
 				}
 				break;
 			}
@@ -348,7 +356,7 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if ((posread >= start_coord) && (posread < end_coord - 50) &&
 					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
 					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, std::get<4>(map_entry->second), std::get<5>(map_entry->second));
+					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, std::get<4>(gene_data), std::get<5>(gene_data), id);
 				}
 				break;
 			}
@@ -356,35 +364,98 @@ void EnhancedOutput::processAlignment(std::string &ref_name, int& strand, int &p
 				if ((posread >= start_coord) && (posread < start_coord + 50) &&
 					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord - 50) &&
 					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, end_coord - 60, end_coord - 40);
+					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, end_coord - 60, end_coord - 40, id);
 				}
 				if ((posread >= start_coord + 50) && (posread < end_coord - 50) &&
 					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
 					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, start_coord + 39, start_coord + 59);
+					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, start_coord + 39, start_coord + 59, id);
 				}
 				break;
 			}
 		}
 	}
 
-	if (!sortedbam) {
-		sprintf(cig, "%s", cig_string.c_str());
-	}
-}
+	// Output alignment
+	if (sortedbam) {
 
-void EnhancedOutput::buildSAMCigar(std::string &cig_string, bool prepend, uint op_len, const char cig_char)
-{
-	static char cig_[10];
-	char *cig = &cig_[0];
+		char *threadBuffer = outBamBuffer + id*MAX_BAM_ALIGN_SIZE;
+		uint *buffer = (uint*)(threadBuffer);
+		uint n_bytes = 0;
+		uint ref_ID = ref_seq_map[ref_name][1];
+		uint name_len = strlen(name) + 1;
+		uint n_cigar = bam_cigar.size();
+		uint cigar_bytes = n_cigar * sizeof(uint);
 
-	sprintf(cig, "%d%c", op_len, cig_char);  // Would to_string be faster?
-	if (prepend) {
-		cig_string.insert(0, cig);
+		// refID
+		buffer[1] = ref_ID;
+
+		// pos
+		buffer[2] = posread - 1;
+
+		// bin_mq_nl
+		buffer[3] = ((reg2bin(posread - 1, posread + align_len - 1) << 16) | (mapq << 8) | name_len);
+
+		// flag_nc
+		buffer[4] = ((flag << 16) | n_cigar);
+
+		// l_seq
+		buffer[5] = slen1;
+
+		// next_refID
+		buffer[6] = ref_ID;
+
+		// next_pos
+		buffer[7] = posmate - 1;
+
+		// tlen
+		buffer[8] = tlen;
+		n_bytes = 9 * sizeof(uint);
+
+		// read_name
+		memcpy(threadBuffer + n_bytes, name, name_len);
+		n_bytes += name_len;
+
+		// cigar
+		memcpy(threadBuffer + n_bytes, bam_cigar.data(), cigar_bytes);
+		n_bytes += cigar_bytes;
+
+		// seq
+		packseq(seq, threadBuffer + n_bytes, slen1);
+		n_bytes += (slen1 + 1) / 2;
+
+		// qual
+		for (uint i = 0; i < slen1; i++) {
+			(threadBuffer + n_bytes)[i] = qual[i] - 33;
+		};
+		n_bytes += slen1;
+
+		// attributes
+		memcpy(threadBuffer + n_bytes, "NHi", 3);
+		memcpy(threadBuffer + n_bytes + 3, &nmap, sizeof(int));
+		n_bytes += 3 + sizeof(int);
+		memcpy(threadBuffer + n_bytes, (strand < 0) ? "XSA-" : "XSA+", 4);
+		//memcpy(threadBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);  // Which is better to use?!
+		n_bytes += 4;
+
+		// block_size
+		buffer[0] = n_bytes - sizeof(uint);
+
+		// Output to sorting file
+		sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
+		num_alignments[id][ref_ID]++;
+
+	} else {
+
+		printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", name, flag, ref_name.c_str(), posread, mapq, sam_cigar.c_str(), posmate, tlen, seq, qual, nmap);
+		if (negstrand) {
+			printf("\tXS:A:-\n");
+		} else {
+			printf("\tXS:A:+\n");
+		}
+
 	}
-	else {
-		cig_string += cig;
-	}
+
 }
 
 void EnhancedOutput::buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int)
@@ -399,21 +470,46 @@ void EnhancedOutput::buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len
 	}
 }
 
-void EnhancedOutput::mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end)
+void EnhancedOutput::buildSAMCigar(std::string &sam_cigar, bool prepend, uint op_len, const char cig_char)
+{
+	static char cig_[10];
+	char *cig = &cig_[0];
+
+	sprintf(cig, "%d%c", op_len, cig_char);  // Would to_string be faster?
+	if (prepend) {
+		sam_cigar.insert(0, cig);
+	} else {
+		sam_cigar += cig;
+	}
+}
+
+void EnhancedOutput::mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end, int id)
 {
 	JunctionKey key = std::make_tuple(chrom_name, start_coord, end_coord);
-	if (junction_map.find(key) == junction_map.end()) {
-		junction_map.emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', size1, size2, pair_start, pair_end));
+	if (junction_map[id].find(key) == junction_map[id].end()) {
+		junction_map[id].emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', size1, size2, pair_start, pair_end));
 	} else {
-		std::get<1>(junction_map[key])++;
+		std::get<1>(junction_map[id][key])++;
 	}
 }
 
 void EnhancedOutput::outputJunction()
 {
-	std::fstream bed_out(bed_file.c_str(), std::fstream::out | std::fstream::trunc);
+	// Merge junction information from threads
+	for (int thread = 1; thread < num_threads; thread++) {
+		for (auto &entry : junction_map[thread]) {
+			JunctionKey key = entry.first;
+			if (junction_map[0].find(key) == junction_map[0].end()) {
+				junction_map[0].emplace(key, entry.second);
+			} else {
+				std::get<1>(junction_map[0][key])++;
+			}
+		}
+	}
 
-	for (auto &entry : junction_map) {
+	// Output junctions
+	std::fstream bed_out(bed_file.c_str(), std::fstream::out | std::fstream::trunc);
+	for (auto &entry : junction_map[0]) {
 
 		JunctionKey key = entry.first;
 		int start_coord = std::get<1>(key);
@@ -422,8 +518,8 @@ void EnhancedOutput::outputJunction()
 		if (std::get<5>(entry.second) >= 0) {
 			std::get<1>(key) = std::get<5>(entry.second);
 			std::get<2>(key) = std::get<6>(entry.second);
-			auto pair_entry = junction_map.find(key);
-			if (pair_entry == junction_map.end()) {
+			auto pair_entry = junction_map[0].find(key);
+			if (pair_entry == junction_map[0].end()) {
 				continue;
 			}
 			std::string pair_name = std::get<0>(pair_entry->second);
@@ -437,82 +533,7 @@ void EnhancedOutput::outputJunction()
 		bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(entry.second) << "," << std::get<4>(entry.second) << "\t0,0,0\n";
 
 	}
-
 	bed_out.close();
-}
-
-void EnhancedOutput::outputBamAlignment(std::string ref_name, int posread, int flag, int slen, int posmate, int tlen, const char *n1, std::vector<uint> bam_cigar, uint align_len, const char *seq, const char *qual, int nmap, int strand, int id)
-{
-	char *threadBuffer = outBamBuffer + id*MAX_BAM_ALIGN_SIZE;
-	uint *buffer = (uint*)(threadBuffer);
-	uint n_bytes = 0;
-	uint ref_ID = ref_seq_map[ref_name][1];
-	uint name_len;
-	uint mapq = 255;
-	uint n_cigar;
-	uint cigar_bytes;
-
-	// refID
-	buffer[1] = ref_ID;
-
-	// pos
-	buffer[2] = posread - 1;
-
-	// bin_mq_nl
-	name_len = strlen(n1) + 1;
-	buffer[3] = ((reg2bin(posread - 1, posread + align_len - 1)<<16) | (mapq<<8) | name_len);
-
-	// flag_nc
-	n_cigar = bam_cigar.size();
-	buffer[4] = ((flag << 16) | n_cigar);
-
-	// l_seq
-	buffer[5] = slen;
-
-	// next_refID
-	buffer[6] = ref_ID;
-
-	// next_pos
-	buffer[7] = posmate - 1;
-
-	// tlen
-	buffer[8] = tlen;
-
-	n_bytes = 9 * sizeof(uint);
-
-	// read_name
-	memcpy(threadBuffer + n_bytes, n1, name_len);
-	n_bytes += name_len;
-
-	// cigar
-	cigar_bytes = n_cigar*sizeof(uint);
-	memcpy(threadBuffer + n_bytes, bam_cigar.data(), cigar_bytes);
-	n_bytes += cigar_bytes;
-
-	// seq
-	packseq(seq, threadBuffer + n_bytes, slen);
-	n_bytes += (slen + 1)/2;
-
-	// qual
-	for (uint i = 0; i < slen; i++) {
-		(threadBuffer + n_bytes)[i] = qual[i] - 33;
-	};
-	n_bytes += slen;
-
-	// attributes
-	memcpy(threadBuffer + n_bytes, "NHi", 3);
-	memcpy(threadBuffer + n_bytes + 3, &nmap, sizeof(int));
-	n_bytes += 3 + sizeof(int);
-	memcpy(threadBuffer + n_bytes, (strand < 0) ? "XSA-" : "XSA+", 4);
-	//memcpy(threadBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);  // Which is better to use?!
-	n_bytes += 4;
-
-	// block_size
-	buffer[0] = n_bytes - sizeof(uint);
-
-	// Output to sorting file
-	sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
-	num_alignments[id][ref_ID]++;
 }
 
 void EnhancedOutput::outputSortedBam()

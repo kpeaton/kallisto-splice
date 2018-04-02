@@ -853,7 +853,7 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
       cerr << "[~warn]  you asked for " << opt.threads
            << ", but only " << n << " cores on the machine" << endl;
     }
-    if (opt.threads > 1 && opt.pseudobam) {
+    if (opt.threads > 1 && (opt.pseudobam && !opt.sortedbam)) {
       cerr << "Error: pseudobam is not compatible with running on many threads."<< endl;
       ret = false;
     }
