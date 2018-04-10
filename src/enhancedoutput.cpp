@@ -502,7 +502,7 @@ void EnhancedOutput::outputJunction()
 			if (junction_map[0].find(key) == junction_map[0].end()) {
 				junction_map[0].emplace(key, entry.second);
 			} else {
-				std::get<1>(junction_map[0][key])++;
+				std::get<1>(junction_map[0][key]) += std::get<1>(entry.second);
 			}
 		}
 	}
