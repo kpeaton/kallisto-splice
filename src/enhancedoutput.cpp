@@ -45,50 +45,75 @@ HighResTimer::duration HighResTimer::timeSincePrevious()
 }
 
 EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
-	: enhancedoutput(opt.pseudobam && !opt.exon_coords_file.empty()),
+	: enhancedoutput(!opt.gene_coords_file.empty()),
+	  pseudobam(opt.pseudobam),
 	  sortedbam(opt.sortedbam),
 	  outputunmapped(false),
 	  num_threads(opt.threads),
 	  current_sorting_index(-1),
-	  outputbed(opt.pseudobam && !opt.exon_coords_file.empty() && !opt.bed_file.empty())
+	  outputbed(opt.outputbed),
+	  bed_file(opt.bed_file)
 {
 	if (enhancedoutput) {
 
-		// Load the exon/intron coordinate map data:
-		std::ifstream file(opt.exon_coords_file);
+		// Load the exon/intron coordinate map data
+		std::ifstream file(opt.gene_coords_file);
 		CSVRow row;
 		std::string last_key;
+		GeneData &last_entry = gene_map.end;
+
 		while (file >> row) {
-			if (last_key == row[0]) {
-				std::get<6>(gene_map[last_key]).emplace_back(std::vector<int>{ std::stoi(row[2]), std::stoi(row[3]), std::stoi(row[4]) });
-			} else {
+
+			int segment_start = std::stoi(row[2]);
+			int segment_end = std::stoi(row[3]);
+			int genome_position = std::stoi(row[4]);
+
+			if (last_key != row[0]) {  // New exon or intron segment
+
 				IntronFlag intron_flag = intronNone;
-				int segment_start = std::stoi(row[2]);
-				int segment_end = std::stoi(row[3]);
-				int genome_position = std::stoi(row[4]);
-				int pair_start = -1;
-				int pair_end = -1;
-				if (row[0].back() == ')') {
-					if ((last_key.back() == ')') && (last_key.substr(0, last_key.find("::") + 2) == row[0].substr(0, row[0].find("::") + 2))) {  // Store pairs together?!
-						intron_flag = intronEnd;
-						int start_coord = std::get<6>(gene_map[last_key])[0][2];
-						int end_coord = genome_position + segment_end - segment_start;
-						pair_start = start_coord + 39;
-						pair_end = start_coord + 59;
-						std::get<3>(gene_map[last_key]) = intronStart;
-						std::get<4>(gene_map[last_key]) = end_coord - 60;
-						std::get<5>(gene_map[last_key]) = end_coord - 40;
-					} else {
+				int strand = std::stoi(row[1]);
+				int str_pos = row[0].find("::");
+				
+				if (str_pos != std::string::npos) {  // Intron segment
+
+					std::string short_key = row[0].substr(0, str_pos);
+					str_pos = last_key.find("::");
+					
+					if ((str_pos != std::string::npos) && (last_key.substr(0, str_pos) == short_key)) {  // Intron end segment that pairs with previous intron start segment
+
+						// Modify intron start segment data
+						std::get<1>(last_entry) = short_key;
+						std::get<3>(last_entry) = intronStart;
+						
+						// Create common segment data for start and end map entries to reference
+						GeneData &new_entry = gene_map.emplace(short_key, std::forward_as_tuple(row[5], row[6], strand, intronFull)).first->second;
+						std::get<4>(new_entry).swap(std::get<4>(last_entry));
+						std::get<4>(new_entry).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
+
+						// Create intron end segment map entry
+						last_key = row[0];
+						last_entry = gene_map.emplace(last_key, std::forward_as_tuple(row[5], short_key, strand, intronEnd)).first->second;
+						continue;
+
+					} else {  // Assume full intron segment (for now)
+
 						intron_flag = intronFull;
+
 					}
+
 				}
+
 				last_key = row[0];
-				gene_map.emplace(last_key, std::make_tuple(row[5], row[6], std::stoi(row[1]), intron_flag, pair_start, pair_end, std::vector<std::vector<int>>{ std::vector<int>{ segment_start, segment_end, genome_position } }));
+				last_entry = gene_map.emplace(last_key, std::forward_as_tuple(row[5], row[6], strand, intron_flag)).first->second;
+
 			}
+
+			std::get<4>(last_entry).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
+
 		}
 		file.close();
 
-		// Collect information for the bam header:
+		// Collect information for the bam header
 		for (int tr = 0; tr < index.num_trans; tr++) {
 
 			std::string key = index.target_names_[tr];
@@ -98,34 +123,44 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				exit(1);
 			}
 
-			GeneData exon_data = map_entry->second;
-			int strand = std::get<2>(exon_data);
-			auto &entry = std::get<6>(exon_data);
+			GeneData &gene_data = map_entry->second;
+			int strand = std::get<2>(gene_data);
+			IntronFlag intron_flag = std::get<3>(gene_data);
+			if ((intron_flag == intronStart) || (intron_flag == intronEnd)) {
+				gene_data = gene_map.at(std::get<1>(gene_data));
+				strand = 1;
+			}
+			const SegmentArray &segments = std::get<4>(gene_data);
+
 			int len;
 			if (strand < 0) {
-				len = entry.front()[2] + entry.front()[1] - entry.front()[0];
+				len = segments.front()[2] + segments.front()[1] - segments.front()[0];
 			} else {
-				len = entry.back()[2] + entry.back()[1] - entry.back()[0];
+				len = segments.back()[2] + segments.back()[1] - segments.back()[0];
 			}
 
-			key = std::get<1>(exon_data);
-			if (ref_seq_map.find(key) == ref_seq_map.end()) {
-				ref_seq_map.emplace(key, std::vector<int>{ len, -1 });
+			key = std::get<1>(gene_data);
+			auto ref_entry = ref_seq_map.find(key);
+			if (ref_entry == ref_seq_map.end()) {
+				ref_seq_map.emplace(key, std::initializer_list<int>{ len, -1 });
 			} else {
-				ref_seq_map[key][0] = (std::max)(ref_seq_map[key][0], len);
+				ref_entry->second[0] = (std::max)(ref_entry->second[0], len);
 			}
 
 		}
 
-		if (sortedbam) {
+		if (sortedbam) {  // Build header and initialize output file streams for sorting
 
-			// Build header and initialize output file streams for sorting:
 			std::ostringstream header_stream;
 			header_stream << "@HD\tVN:1.0\tSO:coordinate\n";
 			sort_dir = opt.output + "/sorting";
 			mkdir(sort_dir.c_str(), 0777);  // Move this to CheckOptions?
+
+			int num_chromosomes = (int)ref_seq_map.size();
 			int ref_ID = 0;
 			std::fstream::openmode stream_flags = std::fstream::in | std::fstream::out | std::fstream::trunc | std::fstream::binary;
+			sorting_streams.reserve(num_threads);
+			num_alignments.reserve(num_threads);
 
 			for (auto &entry : ref_seq_map) {
 
@@ -134,10 +169,12 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 				for (int thread = 0; thread < num_threads; thread++) {
 					if (ref_ID == 0) {
-						sorting_streams.emplace_back(std::vector<std::fstream>{ });
-						num_alignments.emplace_back(std::vector<uint>{ });
+						sorting_streams.emplace_back();
+						sorting_streams[thread].reserve(num_chromosomes);
+						num_alignments.emplace_back();
+						num_alignments[thread].reserve(num_chromosomes);
 					}
-					sorting_streams[thread].emplace_back(std::fstream{ sort_file + std::to_string(thread), stream_flags });
+					sorting_streams[thread].emplace_back(sort_file + std::to_string(thread), stream_flags);
 					num_alignments[thread].emplace_back(0);
 				}
 
@@ -150,9 +187,8 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 			outBamBuffer = new char[MAX_BAM_ALIGN_SIZE*num_threads];
 
-		} else {
+		} else if (pseudobam) {  // Write the bam header
 
-			// Write the bam header
 			std::cout << "@HD\tVN:1.0\n";
 			for (auto const &entry : ref_seq_map) {
 				std::cout << "@SQ\tSN:" << entry.first << "\tLN:" << entry.second[0] << "\n";
@@ -163,15 +199,14 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 		}
 
 		if (outputbed) {
-			bed_file = opt.bed_file;
+			junction_map.reserve(num_threads);
 			for (int thread = 0; thread < num_threads; thread++) {
-				junction_map.emplace_back(JunctionMap{ });
+				junction_map.emplace_back();
 			}
 		}
 
-	} else if (opt.pseudobam) {
+	} else if (pseudobam) {  // Write the bam header
 
-		// Write the bam header
 		index.writePseudoBamHeader(std::cout);
 
 	}
@@ -187,12 +222,38 @@ EnhancedOutput::~EnhancedOutput()
 
 void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id)
 {
-	GeneData gene_data = gene_map[trans_name];
-	std::string ref_name = std::get<1>(gene_data);
+	GeneData &gene_data = gene_map.at(trans_name);
 	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;  // Use trsense from findPosition instead?!
-	bool negstrand = strand < 0;
 	IntronFlag intron_flag = std::get<3>(gene_data);
+	SegmentArray::const_iterator iter_start, iter_end, intron_pair;
 
+	switch (intron_flag) {
+		case intronNone:
+		case intronFull:
+			const SegmentArray &segments = std::get<4>(gene_data);
+			iter_start = segments.begin();
+			iter_end = segments.end();
+			break;
+		case intronStart:
+			trans_name = std::get<1>(gene_data);
+			gene_data = gene_map.at(trans_name);
+			const SegmentArray &segments = std::get<4>(gene_data);
+			iter_start = segments.begin();
+			iter_end = ++segments.begin();
+			intron_pair = iter_end;
+			break;
+		case intronEnd:
+			trans_name = std::get<1>(gene_data);
+			gene_data = gene_map.at(trans_name);
+			const SegmentArray &segments = std::get<4>(gene_data);
+			intron_pair = segments.begin();
+			iter_start = ++segments.begin();
+			iter_end = segments.end();
+			break;
+	}
+
+	std::string ref_name = std::get<1>(gene_data);
+	bool negstrand = strand < 0;
 	std::vector<uint> bam_cigar;
 	uint align_len = 0;
 	std::string sam_cigar;
@@ -204,38 +265,42 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 	int end_coord = 0;
 
 	// Map alignment to chromosome coordinates
-	for (auto &span : std::get<6>(gene_data)) {
+	for (auto span = iter_start; span != iter_end; span++) {
+
+		const int segment_start = (*span)[0];
+		const int segment_end = (*span)[1];
+		const int genome_position = (*span)[2];
 
 		if (read_rem > 0) {  // Not done mapping read
 
 			if (read_rem < slen1) {  // In the process of mapping read
 
-				// Find span of skipped intron:
+				// Find span of skipped region:
 				if (negstrand) {
-					start_coord = span[2] + span[1] - span[0];
+					start_coord = genome_position + segment_end - segment_start;
 					end_coord = read_offset;
 				} else {
 					start_coord = read_offset;
-					end_coord = span[2];
+					end_coord = genome_position;
 				}
 
 				// Update CIGAR string:
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, end_coord - start_coord - 1, 3);
-				} else{
+				} else if (pseudobam) {
 					buildSAMCigar(sam_cigar, negstrand, end_coord - start_coord - 1, 'N');
 				}
 
 				// Store BED file information:
 				if (outputbed) {
-					mapJunction(ref_name, trans_name, negstrand, start_coord, end_coord, 0, 0, -1, -1, id);
+					mapJunction(id, ref_name, trans_name, intron_flag, negstrand, start_coord, end_coord);
 				}
 
-				// Find overlap with exon segment:
-				read_offset = span[1] - span[0] + 1;
+				// Find overlap with segment:
+				read_offset = segment_end - segment_start + 1;
 				if (read_rem > read_offset){
 					op_len = read_offset;
-					read_offset = (negstrand) ? span[2] : read_offset + span[2] - 1;
+					read_offset = (negstrand) ? genome_position : read_offset + genome_position - 1;
 				} else {
 					op_len = read_rem;
 					if (negstrand) {
@@ -247,43 +312,43 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				// Update CIGAR string:
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
-				} else{
+				} else if (pseudobam) {
 					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
 				}
 
-			} else if (posread <= span[1]) {  // Begin mapping read
+			} else if (posread <= segment_end) {  // Begin mapping read
 
 				// Find soft clipping at beginning of read:
-				if (posread < span[0]) {
-					op_len = span[0] - posread;
+				if (posread < segment_start) {
+					op_len = segment_start - posread;
 					read_rem -= op_len;
 					if (sortedbam) {
 						buildBAMCigar(bam_cigar, align_len, false, op_len, 4);
-					} else{
+					} else if (pseudobam) {
 						buildSAMCigar(sam_cigar, false, op_len, 'S');
 					}
 				}
 
-				// Find overlap with exon segment:
-				read_offset = posread + slen1 - span[1] - 1;
+				// Find overlap with segment:
+				read_offset = posread + slen1 - segment_end - 1;
 				if (read_offset > 0) {
 					op_len = read_rem - read_offset;
 					if (negstrand) {
-						read_offset = span[2];
+						read_offset = genome_position;
 					} else {
-						read_offset = span[2] + span[1] - span[0];
-						posread += span[2] - span[0];
+						read_offset = genome_position + segment_end - segment_start;
+						posread += genome_position - segment_start;
 					}
 				} else {
 					op_len = read_rem;
-					posread = (negstrand) ? span[2] - read_offset : posread + span[2] - span[0];
+					posread = (negstrand) ? genome_position - read_offset : posread + genome_position - segment_start;
 				}
 				read_rem -= op_len;
 
 				// Update CIGAR string:
 				if (sortedbam) {
 					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
-				} else{
+				} else if (pseudobam) {
 					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
 				}
 
@@ -295,17 +360,17 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 			if (mate_rem < slen2) {  // In the process of mapping mate
 
-				mate_rem -= span[1] - span[0] + 1;
-				posmate = span[2] - mate_rem;
+				mate_rem -= segment_end - segment_start + 1;
+				posmate = genome_position - mate_rem;
 
-			} else if (posmate <= span[1]) {  // Begin mapping mate
+			} else if (posmate <= segment_end) {  // Begin mapping mate
 
 				if (negstrand) {
-					mate_rem = posmate + slen2 - span[1] - 1;
-					posmate = span[2] - mate_rem;
+					mate_rem = posmate + slen2 - segment_end - 1;
+					posmate = genome_position - mate_rem;
 				} else {
 					mate_rem = 0;
-					posmate += span[2] - span[0];
+					posmate += genome_position - segment_start;
 				}
 
 			}
@@ -324,56 +389,54 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 		}
 		if (sortedbam) {
 			buildBAMCigar(bam_cigar, align_len, negstrand, read_rem, 4);
-		} else{
+		} else if (pseudobam) {
 			buildSAMCigar(sam_cigar, negstrand, read_rem, 'S');
 		}
 	}
 
 	if ((mate_rem == slen2) && (posmate > 0)) {  // Account for mate completely outside segment (is this even necessary?!)
 		std::cerr << "mate outside segment: " << trans_name << std::endl;
-		auto &span = std::get<6>(gene_data).back();
-		posmate = (negstrand) ? span[2] - posmate - slen2 + span[1] + 1 : posmate + span[2] - span[0];
+		auto span = --iter_end;
+		posmate = (negstrand) ? (*span)[2] - posmate - slen2 + (*span)[1] + 1 : posmate + (*span)[2] - (*span)[0];
 	}
 
 	// Store junction information
 	if (outputbed && (intron_flag != intronNone)) {
 
-		auto &span = std::get<6>(gene_data)[0];
-		start_coord = span[2];
-		end_coord = span[2] + span[1] - span[0];
-		trans_name = trans_name.substr(0, trans_name.find("::")) + '-';
+		if (intron_flag != intronEnd) {  // Map intron start junction
 
-		switch (intron_flag) {  // Could perhaps make this more compact and less redundant
-			case intronStart: {
-				if ((posread >= start_coord) && (posread < start_coord + 50) &&
-					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord) &&
-					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, std::get<4>(gene_data), std::get<5>(gene_data), id);
-				}
-				break;
+			start_coord = (*iter_start)[2];
+			if (intron_flag == intronFull) {
+				end_coord = start_coord + (*iter_start)[1] - (*iter_start)[0];
+			} else {
+				end_coord = (*intron_pair)[2] + (*intron_pair)[1] - (*intron_pair)[0];
 			}
-			case intronEnd: {
-				if ((posread >= start_coord) && (posread < end_coord - 50) &&
-					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
-					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, std::get<4>(gene_data), std::get<5>(gene_data), id);
-				}
-				break;
+
+			if ((posread >= start_coord) && (posread < start_coord + 50) &&
+				(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord - 50) &&
+				(posmate < end_coord)) {
+				mapJunction(id, ref_name, trans_name, intronStart, negstrand, start_coord + 50, end_coord - 50, 10, 10);
 			}
-			case intronFull: {
-				if ((posread >= start_coord) && (posread < start_coord + 50) &&
-					(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord - 50) &&
-					(posmate < end_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(start_coord + 50), negstrand, start_coord + 39, start_coord + 59, 10, 10, end_coord - 60, end_coord - 40, id);
-				}
-				if ((posread >= start_coord + 50) && (posread < end_coord - 50) &&
-					(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
-					(posmate + slen2 >= start_coord)) {
-					mapJunction(ref_name, trans_name + std::to_string(end_coord - 50), negstrand, end_coord - 60, end_coord - 40, 10, 10, start_coord + 39, start_coord + 59, id);
-				}
-				break;
-			}
+
 		}
+
+		if (intron_flag != intronStart) {  // Map intron end junction
+
+			end_coord = (*iter_start)[2] + (*iter_start)[1] - (*iter_start)[0];
+			if (intron_flag == intronFull) {
+				start_coord = (*iter_start)[2];
+			} else {
+				start_coord = (*intron_pair)[2];
+			}
+
+			if ((posread >= start_coord + 50) && (posread < end_coord - 50) &&
+				(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
+				(posmate + slen2 >= start_coord)) {
+				mapJunction(id, ref_name, trans_name, intronEnd, negstrand, end_coord - 50, start_coord + 50, 10, 10);
+			}
+
+		}
+
 	}
 
 	// Output alignment
@@ -382,7 +445,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 		char *threadBuffer = outBamBuffer + id*MAX_BAM_ALIGN_SIZE;
 		uint *buffer = (uint*)(threadBuffer);
 		uint n_bytes = 0;
-		uint ref_ID = ref_seq_map[ref_name][1];
+		uint ref_ID = ref_seq_map.at(ref_name)[1];
 		uint name_len = strlen(name) + 1;
 		uint n_cigar = bam_cigar.size();
 		uint cigar_bytes = n_cigar * sizeof(uint);
@@ -445,7 +508,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 		sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
 		num_alignments[id][ref_ID]++;
 
-	} else {
+	} else if (pseudobam) {
 
 		printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", name, flag, ref_name.c_str(), posread, mapq, sam_cigar.c_str(), posmate, tlen, seq, qual, nmap);
 		if (negstrand) {
@@ -483,13 +546,26 @@ void EnhancedOutput::buildSAMCigar(std::string &sam_cigar, bool prepend, uint op
 	}
 }
 
-void EnhancedOutput::mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end, int id)
+void EnhancedOutput::mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1 = 0, int size2 = 0)
 {
-	JunctionKey key = std::make_tuple(chrom_name, start_coord, end_coord);
-	if (junction_map[id].find(key) == junction_map[id].end()) {
-		junction_map[id].emplace(key, std::make_tuple(trans_name, 1, (negstrand) ? '-' : '+', size1, size2, pair_start, pair_end));
+	JunctionKey key;
+	switch (intron_flag) {
+		case intronNone:
+			key = std::make_tuple(chrom_name, junction_coord, pair_coord, trans_name);
+			break;
+		case intronStart:
+			key = std::make_tuple(chrom_name, junction_coord - 11, junction_coord + 9, trans_name);
+			break;
+		case intronEnd:
+			key = std::make_tuple(chrom_name, junction_coord - 10, junction_coord + 10, trans_name);
+			break;
+	}
+
+	auto map_entry = junction_map[id].find(key);
+	if (map_entry == junction_map[id].end()) {
+		junction_map[id].emplace(key, std::forward_as_tuple(1, intron_flag, (negstrand) ? '-' : '+', size1, size2, pair_coord));
 	} else {
-		std::get<1>(junction_map[id][key])++;
+		std::get<0>(map_entry->second)++;
 	}
 }
 
@@ -497,40 +573,52 @@ void EnhancedOutput::outputJunction()
 {
 	// Merge junction information from threads
 	for (int thread = 1; thread < num_threads; thread++) {
-		for (auto &entry : junction_map[thread]) {
+		for (const auto &entry : junction_map[thread]) {
 			JunctionKey key = entry.first;
-			if (junction_map[0].find(key) == junction_map[0].end()) {
+			auto map_entry = junction_map[0].find(key);
+			if (map_entry == junction_map[0].end()) {
 				junction_map[0].emplace(key, entry.second);
 			} else {
-				std::get<1>(junction_map[0][key]) += std::get<1>(entry.second);
+				std::get<0>(map_entry->second) += std::get<0>(entry.second);
 			}
 		}
 	}
 
 	// Output junctions
 	std::fstream bed_out(bed_file.c_str(), std::fstream::out | std::fstream::trunc);
-	for (auto &entry : junction_map[0]) {
+	for (const auto &entry : junction_map[0]) {
 
 		JunctionKey key = entry.first;
 		int start_coord = std::get<1>(key);
 		int end_coord = std::get<2>(key);
-		std::string trans_name = std::get<0>(entry.second);
-		if (std::get<5>(entry.second) >= 0) {
-			std::get<1>(key) = std::get<5>(entry.second);
-			std::get<2>(key) = std::get<6>(entry.second);
-			auto pair_entry = junction_map[0].find(key);
-			if (pair_entry == junction_map[0].end()) {
+		std::string trans_name = std::get<3>(key);
+
+		const auto &junction_data = entry.second;
+		IntronFlag intron_flag = std::get<1>(junction_data);
+
+		if (intron_flag != intronNone) {
+
+			int pair_coord = std::get<5>(junction_data);
+
+			if (intron_flag == intronStart) {
+				std::get<1>(key) = pair_coord - 10;
+				std::get<2>(key) = pair_coord + 10;
+				trans_name += '-' + std::to_string(start_coord + 11);
+			} else {
+				std::get<1>(key) = pair_coord - 11;
+				std::get<2>(key) = pair_coord + 9;
+				trans_name += '-' + std::to_string(start_coord + 10);
+			}
+
+			if (junction_map[0].count(key) == 0) {
 				continue;
 			}
-			std::string pair_name = std::get<0>(pair_entry->second);
-			if (trans_name.substr(0, trans_name.find("-")) != pair_name.substr(0, pair_name.find("-"))) {
-				continue;
-			}
+
 		}
 
 		bed_out << std::get<0>(key) << "\t" << start_coord << "\t" << end_coord << "\t";
-		bed_out << trans_name << "\t" << std::get<1>(entry.second) << "\t" << std::get<2>(entry.second) << "\t";
-		bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(entry.second) << "," << std::get<4>(entry.second) << "\t0,0,0\n";
+		bed_out << trans_name << "\t" << std::get<0>(junction_data) << "\t" << std::get<2>(junction_data) << "\t";
+		bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(junction_data) << "," << std::get<4>(junction_data) << "\t0,0,0\n";
 
 	}
 	bed_out.close();
@@ -575,7 +663,7 @@ void EnhancedOutput::outputSortedBam()
 		// Sort chromosomes
 		std::vector<std::thread> workers;
 		for (int thread = 0; thread < num_threads; thread++) {
-			workers.emplace_back(std::thread{ &EnhancedOutput::fetchChromosome, this });
+			workers.emplace_back(&EnhancedOutput::fetchChromosome, this);
 		}
 		for (int thread = 0; thread < num_threads; thread++) {
 			workers[thread].join();

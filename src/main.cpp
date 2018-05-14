@@ -328,7 +328,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int umi_flag = 0;
   int sbam_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:b:e:d:";
+  const char *opt_string = "t:i:l:s:o:b:g:j:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -344,8 +344,8 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"fragment-length", required_argument, 0, 'l'},
     {"sd", required_argument, 0, 's'},
     {"output-dir", required_argument, 0, 'o'},
-	{"exon-coords", required_argument, 0, 'e'},
-	{"bed-out", required_argument, 0, 'd'},
+	{"gene-coords", required_argument, 0, 'g'},
+	{"junction-out", required_argument, 0, 'j'},
     {0,0,0,0}
   };
   int c;
@@ -385,11 +385,12 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
       opt.batch_file_name = optarg;
       break;
     }
-	case 'e': {
-		opt.exon_coords_file = optarg;
+	case 'g': {
+		opt.gene_coords_file = optarg;
 		break;
 	}
-	case 'd': {
+	case 'j': {
+		opt.outputbed = true;
 		opt.bed_file = optarg;
 		break;
 	}
@@ -424,7 +425,6 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   }
   
   if (sbam_flag) {
-	opt.pseudobam = true;
 	opt.sortedbam = true;
   }
   
@@ -711,6 +711,10 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
       }
     }
   } else {
+	if (opt.sortedbam) {
+	  cerr << "Error: batch mode cannot be used when generating sortedbam output." << endl;
+	  ret = false;
+	}
     if (opt.files.size() != 0) {
       cerr << ERROR_STR << " cannot specify batch mode and supply read files" << endl;
       ret = false;
@@ -853,20 +857,29 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
       cerr << "[~warn]  you asked for " << opt.threads
            << ", but only " << n << " cores on the machine" << endl;
     }
-    if (opt.threads > 1 && (opt.pseudobam && !opt.sortedbam)) {
+    if (opt.threads > 1 && opt.pseudobam) {
       cerr << "Error: pseudobam is not compatible with running on many threads."<< endl;
       ret = false;
     }
   }
 
-  // check for exon_coords_file
-  if (!opt.exon_coords_file.empty()) {
+  // check for gene_coords_file
+  if (!opt.gene_coords_file.empty()) {
 	  filestat stFileInfo;
-	  auto intStat = filestat(opt.exon_coords_file.c_str(), &stFileInfo);
+	  auto intStat = filestat(opt.gene_coords_file.c_str(), &stFileInfo);
 	  if (intStat != 0) {
-		  cerr << ERROR_STR << " kallisto exon coordinate file not found " << opt.exon_coords_file << endl;
+		  cerr << ERROR_STR << " gene coordinate file not found " << opt.gene_coords_file << endl;
 		  ret = false;
 	  }
+  } else if (opt.sortedbam || opt.outputbed) {
+	  cerr << "Error: gene coordinate file is needed when using sortedbam or junction BED output." << endl;
+	  ret = false;
+  }
+
+  // check bed_file
+  if (opt.outputbed && opt.bed_file.empty()) {
+	  cerr << "Error: must specify a file for junction BED output." << endl;
+	  ret = false;
   }
 
   return ret;
@@ -1046,7 +1059,7 @@ void usagePseudo(bool valid_input = true) {
        << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
 	   << "    --sortedbam               Output a sorted BAM format to stdout" << endl
 	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl
-	   << "-d  --bed-out=FILE            File name for junction BED output" << endl;
+	   << "-j  --junction-out=FILE       File name for junction BED output" << endl;
 
 }
 

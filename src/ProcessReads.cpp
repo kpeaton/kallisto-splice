@@ -257,7 +257,7 @@ void MasterProcessor::processReads() {
   if (!opt.batch_mode) {
     std::vector<std::thread> workers;
     for (int i = 0; i < opt.threads; i++) {
-      workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, i)));
+	  workers.emplace_back(ReadProcessor(index, opt, tc, *this, i));
     }
     
     // let the workers do their thing
@@ -285,7 +285,7 @@ void MasterProcessor::processReads() {
       workers.clear();
       int nt = (std::min)(opt.threads, (num_ids - id));
       for (int i = 0; i < nt; i++,id++) {
-        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, id)));
+        workers.emplace_back(ReadProcessor(index, opt, tc, *this, id));
       }
       
       for (int i = 0; i < nt; i++) {
@@ -537,7 +537,7 @@ void ReadProcessor::operator()() {
         return;
       } else {
         // get new sequences
-        mp.SR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, mp.opt.pseudobam || mp.opt.fusion);
+        mp.SR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, mp.opt.pseudobam || mp.opt.sortedbam || mp.opt.outputbed || mp.opt.fusion);
       }
       // release the reader lock
     }
@@ -765,8 +765,8 @@ void ReadProcessor::processBuffer() {
       }
     }
 
-    // pseudobam
-    if (mp.opt.pseudobam) {
+    // bam/bed output
+	if (mp.opt.pseudobam || mp.opt.sortedbam || mp.opt.outputbed) {
       if (paired) {
         outputPseudoBam(index, u,
           s1, names[i-1].first, quals[i-1].first, l1, names[i-1].second, v1,

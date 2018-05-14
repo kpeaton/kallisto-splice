@@ -95,10 +95,13 @@ public:
 	// Gene coordinate map:
 	bool enhancedoutput;
 	static enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
-	typedef std::tuple<std::string, std::string, int, IntronFlag, int, int, std::vector<std::vector<int>>> GeneData;
-	std::map<std::string, GeneData> gene_map;
+	typedef std::vector<int> SegmentData;
+	typedef std::vector<SegmentData> SegmentArray;
+	typedef std::tuple<std::string, std::string, int, IntronFlag, SegmentArray> GeneData;
+	std::map<std::string, GeneData> gene_map;  // Use unordered_map!!
 
 	// General SAM/BAM output data:
+	bool pseudobam;
 	bool sortedbam;
 	bool outputunmapped;
 	std::map<std::string, std::vector<int>> ref_seq_map;
@@ -115,15 +118,15 @@ public:
 	// BED output data:
 	bool outputbed;
 	std::string bed_file;
-	typedef std::tuple<std::string, int, int> JunctionKey;
-	typedef std::map<JunctionKey, std::tuple<std::string, int, char, int, int, int, int>> JunctionMap;
+	typedef std::tuple<std::string, int, int, std::string> JunctionKey;
+	typedef std::map<JunctionKey, std::tuple<int, IntronFlag, char, int, int, int>> JunctionMap;
 	std::vector<JunctionMap> junction_map;
 
 	// Methods:
 	void processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id);
 	void buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int);
 	void buildSAMCigar(std::string &sam_cigar, bool prepend, uint op_len, const char cig_char);
-	void mapJunction(std::string chrom_name, std::string trans_name, bool negstrand, int start_coord, int end_coord, int size1, int size2, int pair_start, int pair_end, int id);
+	void mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1, int size2);
 	void outputJunction();
 	void outputSortedBam();
 	void fetchChromosome();

@@ -38,8 +38,9 @@ struct ProgramOptions {
   enum class StrandType {None, FR, RF};
   StrandType strand;
   bool umi;
-  std::string exon_coords_file;
+  std::string gene_coords_file;
   bool sortedbam;
+  bool outputbed;
   std::string bed_file;
   std::string gfa; // used for inspect
 
@@ -66,7 +67,8 @@ ProgramOptions() :
   fusion(false),
   strand(StrandType::None),
   umi(false),
-  sortedbam(false)
+  sortedbam(false),
+  outputbed(false)
   {}
 };
 
