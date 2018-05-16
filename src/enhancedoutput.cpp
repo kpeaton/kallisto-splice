@@ -58,7 +58,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 		
 		// Load the exon/intron coordinate map data
 		std::ifstream file(opt.gene_coords_file);
-		CSVRow row;
+		DelimRow row;
 		std::string last_key;
 		auto last_entry = gene_map.end();
 		
@@ -854,17 +854,22 @@ char EnhancedOutput::encodeNucleotide(char cc) // Use a std::map instead?
 	return cc;
 };
 
-std::string const& CSVRow::operator[](std::size_t index) const
+DelimRow::DelimRow(char delimiter)
+	: delim(delimiter)
+{
+}
+
+std::string const& DelimRow::operator[](std::size_t index) const
 {
 	return m_data[index];
 }
 
-std::size_t CSVRow::size() const
+std::size_t DelimRow::size() const
 {
 	return m_data.size();
 }
 
-void CSVRow::readNextRow(std::istream& str)
+void DelimRow::readNextRow(std::istream& str)
 {
 	std::string line;
 	std::getline(str, line);
@@ -873,17 +878,17 @@ void CSVRow::readNextRow(std::istream& str)
 	std::string cell;
 
 	m_data.clear();
-	while (std::getline(lineStream, cell, ',')) {
+	while (std::getline(lineStream, cell, delim)) {
 		m_data.push_back(cell);
 	}
-	// This checks for a trailing comma with no data after it.
+	// This checks for a trailing delimiter with no data after it
 	if (!lineStream && cell.empty()) {
-		// If there was a trailing comma then add an empty element.
+		// If there was a trailing delimiter then add an empty element
 		m_data.push_back("");
 	}
 }
 
-std::istream& operator>>(std::istream& str, CSVRow& data)
+std::istream& operator>>(std::istream& str, DelimRow& data)
 {
 	data.readNextRow(str);
 	return str;

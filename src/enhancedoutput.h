@@ -139,19 +139,22 @@ public:
 	static char encodeNucleotide(char);
 };
 
-class CSVRow
+class DelimRow
 {
 // Adapted from a Stack Overflow answer from user Loki Astari: http://stackoverflow.com/a/1120224/52738
 public:
+	DelimRow(char delimiter = ',');
+
 	std::string const& operator[](std::size_t index) const;
 	std::size_t size() const;
 	void readNextRow(std::istream& str);
 
 private:
+	char delim;
 	std::vector<std::string> m_data;
 };
 
-std::istream& operator>>(std::istream& str, CSVRow& data);
+std::istream& operator>>(std::istream& str, DelimRow& data);
 
 // Templates
 template <class arrayType, int arraySize>
