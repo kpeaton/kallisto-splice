@@ -55,13 +55,13 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 	  bed_file(opt.bed_file)
 {
 	if (enhancedoutput) {
-
+		
 		// Load the exon/intron coordinate map data
 		std::ifstream file(opt.gene_coords_file);
 		CSVRow row;
 		std::string last_key;
-		GeneData &last_entry = gene_map.end;
-
+		auto last_entry = gene_map.end();
+		
 		while (file >> row) {
 
 			int segment_start = std::stoi(row[2]);
@@ -75,44 +75,46 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				int str_pos = row[0].find("::");
 				
 				if (str_pos != std::string::npos) {  // Intron segment
-
-					std::string short_key = row[0].substr(0, str_pos);
-					str_pos = last_key.find("::");
 					
-					if ((str_pos != std::string::npos) && (last_key.substr(0, str_pos) == short_key)) {  // Intron end segment that pairs with previous intron start segment
+					std::string short_key = row[0].substr(0, str_pos);
+					
+					if (last_key == short_key) {  // Intron end segment that pairs with previous intron start segment
 
 						// Modify intron start segment data
-						std::get<1>(last_entry) = short_key;
-						std::get<3>(last_entry) = intronStart;
+						std::get<1>(last_entry->second) = short_key;
+						std::get<3>(last_entry->second) = intronStart;
 						
 						// Create common segment data for start and end map entries to reference
-						GeneData &new_entry = gene_map.emplace(short_key, std::forward_as_tuple(row[5], row[6], strand, intronFull)).first->second;
-						std::get<4>(new_entry).swap(std::get<4>(last_entry));
+						GeneData &new_entry = gene_map.emplace(short_key, std::forward_as_tuple(row[5], row[6], strand, intronFull, SegmentArray{})).first->second;
+						std::get<4>(new_entry).swap(std::get<4>(last_entry->second));
 						std::get<4>(new_entry).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
 
 						// Create intron end segment map entry
-						last_key = row[0];
-						last_entry = gene_map.emplace(last_key, std::forward_as_tuple(row[5], short_key, strand, intronEnd)).first->second;
+						last_entry = gene_map.emplace(row[0], std::forward_as_tuple(row[5], short_key, strand, intronEnd, SegmentArray{})).first;
 						continue;
 
 					} else {  // Assume full intron segment (for now)
 
 						intron_flag = intronFull;
+						last_key = short_key;
 
 					}
 
+				} else {  // Exon segment
+
+					last_key = row[0];
+
 				}
 
-				last_key = row[0];
-				last_entry = gene_map.emplace(last_key, std::forward_as_tuple(row[5], row[6], strand, intron_flag)).first->second;
+				last_entry = gene_map.emplace(row[0], std::forward_as_tuple(row[5], row[6], strand, intron_flag, SegmentArray{})).first;
 
 			}
 
-			std::get<4>(last_entry).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
+			std::get<4>(last_entry->second).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
 
 		}
 		file.close();
-
+		
 		// Collect information for the bam header
 		for (int tr = 0; tr < index.num_trans; tr++) {
 
@@ -123,7 +125,7 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 				exit(1);
 			}
 
-			GeneData &gene_data = map_entry->second;
+			GeneData gene_data = map_entry->second;
 			int strand = std::get<2>(gene_data);
 			IntronFlag intron_flag = std::get<3>(gene_data);
 			if ((intron_flag == intronStart) || (intron_flag == intronEnd)) {
@@ -222,19 +224,23 @@ EnhancedOutput::~EnhancedOutput()
 
 void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id)
 {
-	GeneData &gene_data = gene_map.at(trans_name);
+	GeneData gene_data = gene_map.at(trans_name);
 	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;  // Use trsense from findPosition instead?!
 	IntronFlag intron_flag = std::get<3>(gene_data);
 	SegmentArray::const_iterator iter_start, iter_end, intron_pair;
 
 	switch (intron_flag) {
-		case intronNone:
 		case intronFull:
+			trans_name = trans_name.substr(0, trans_name.find("::"));
+		case intronNone:
+		{
 			const SegmentArray &segments = std::get<4>(gene_data);
 			iter_start = segments.begin();
 			iter_end = segments.end();
 			break;
+		}
 		case intronStart:
+		{
 			trans_name = std::get<1>(gene_data);
 			gene_data = gene_map.at(trans_name);
 			const SegmentArray &segments = std::get<4>(gene_data);
@@ -242,7 +248,9 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 			iter_end = ++segments.begin();
 			intron_pair = iter_end;
 			break;
+		}
 		case intronEnd:
+		{
 			trans_name = std::get<1>(gene_data);
 			gene_data = gene_map.at(trans_name);
 			const SegmentArray &segments = std::get<4>(gene_data);
@@ -250,6 +258,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 			iter_start = ++segments.begin();
 			iter_end = segments.end();
 			break;
+		}
 	}
 
 	std::string ref_name = std::get<1>(gene_data);
@@ -546,7 +555,7 @@ void EnhancedOutput::buildSAMCigar(std::string &sam_cigar, bool prepend, uint op
 	}
 }
 
-void EnhancedOutput::mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1 = 0, int size2 = 0)
+void EnhancedOutput::mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1, int size2)
 {
 	JunctionKey key;
 	switch (intron_flag) {

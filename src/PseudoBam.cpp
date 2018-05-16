@@ -47,7 +47,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 	if (output_handler.enhancedoutput) {
 		std::set<std::string> gene_list;
 		for (auto tr : u) {
-			if (gene_list.emplace(std::get<0>(output_handler.gene_map[index.target_names_[tr]])).second) {
+			if (gene_list.emplace(std::get<0>(output_handler.gene_map.at(index.target_names_[tr]))).second) {
 				v.push_back(tr);
 			}
 		}

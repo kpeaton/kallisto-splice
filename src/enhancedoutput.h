@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <iterator>
 #include <iostream>
@@ -98,7 +99,7 @@ public:
 	typedef std::vector<int> SegmentData;
 	typedef std::vector<SegmentData> SegmentArray;
 	typedef std::tuple<std::string, std::string, int, IntronFlag, SegmentArray> GeneData;
-	std::map<std::string, GeneData> gene_map;  // Use unordered_map!!
+	std::unordered_map<std::string, GeneData> gene_map;
 
 	// General SAM/BAM output data:
 	bool pseudobam;
@@ -126,7 +127,7 @@ public:
 	void processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id);
 	void buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int);
 	void buildSAMCigar(std::string &sam_cigar, bool prepend, uint op_len, const char cig_char);
-	void mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1, int size2);
+	void mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1 = 0, int size2 = 0);
 	void outputJunction();
 	void outputSortedBam();
 	void fetchChromosome();
