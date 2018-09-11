@@ -115,6 +115,7 @@ public:
 	std::mutex sorting_lock;
 	std::vector<std::vector<std::fstream>> sorting_streams;
 	std::vector<std::vector<uint>> num_alignments;
+	std::vector<int> sense_types;
 
 	// BED output data:
 	bool outputbed;
@@ -174,5 +175,9 @@ inline int funCompareArrays(const void *a, const void *b)
 	return 0;
 
 };
+
+template <typename T> int sgn(T val) {
+	return (T(0) < val) - (val < T(0));
+}
 
 #endif // ENHANCEDOUTPUT_H

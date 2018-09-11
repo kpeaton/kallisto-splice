@@ -124,8 +124,9 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   int bias_flag = 0;
   int pbam_flag = 0;
   int fusion_flag = 0;
+  int sbam_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:n:m:d:b:";
+  const char *opt_string = "t:i:l:s:o:n:m:d:b:g:j:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -136,6 +137,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     {"rf-stranded", no_argument, &strand_RF_flag, 1},
     {"bias", no_argument, &bias_flag, 1},
     {"pseudobam", no_argument, &pbam_flag, 1},
+	{"sortedbam", no_argument, &sbam_flag, 1},
     {"fusion", no_argument, &fusion_flag, 1},
     {"seed", required_argument, 0, 'd'},
     // short args
@@ -147,6 +149,8 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     {"iterations", required_argument, 0, 'n'},
     {"min-range", required_argument, 0, 'm'},
     {"bootstrap-samples", required_argument, 0, 'b'},
+	{"gene-coords", required_argument, 0, 'g'},
+	{"junction-out", required_argument, 0, 'j'},
     {0,0,0,0}
   };
   int c;
@@ -196,6 +200,15 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
       stringstream(optarg) >> opt.seed;
       break;
     }
+	case 'g': {
+		opt.gene_coords_file = optarg;
+		break;
+	}
+	case 'j': {
+		opt.outputbed = true;
+		opt.bed_file = optarg;
+		break;
+	}
     default: break;
     }
   }
@@ -242,6 +255,11 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   if (fusion_flag) {
     opt.fusion = true;
   }
+
+  if (sbam_flag) {
+	opt.sortedbam = true;
+  }
+
 }
 
 void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
@@ -667,6 +685,26 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
     ret = false;
   }
 
+  // check for gene_coords_file
+  if (!opt.gene_coords_file.empty()) {
+	  filestat stFileInfo;
+	  auto intStat = filestat(opt.gene_coords_file.c_str(), &stFileInfo);
+	  if (intStat != 0) {
+		  cerr << ERROR_STR << " gene coordinate file not found " << opt.gene_coords_file << endl;
+		  ret = false;
+	  }
+  }
+  else if (opt.sortedbam || opt.outputbed) {
+	  cerr << "Error: gene coordinate file is needed when using sortedbam or junction BED output." << endl;
+	  ret = false;
+  }
+
+  // check bed_file
+  if (opt.outputbed && opt.bed_file.empty()) {
+	  cerr << "Error: must specify a file for junction BED output." << endl;
+	  ret = false;
+  }
+
   return ret;
 }
 
@@ -1032,7 +1070,10 @@ void usageEM(bool valid_input = true) {
        << "                              (default: -l, -s values are estimated from paired" << endl
        << "                               end data, but are required when using --single)" << endl
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
-       << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl;
+       << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
+	   << "    --sortedbam               Output a sorted BAM format to stdout" << endl
+	   << "-g  --gene-coords=FILE        File name for gene coordinate file" << endl
+	   << "-j  --junction-out=FILE       File name for junction BED output" << endl;
 
 }
 
@@ -1058,7 +1099,7 @@ void usagePseudo(bool valid_input = true) {
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
        << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl
 	   << "    --sortedbam               Output a sorted BAM format to stdout" << endl
-	   << "-e  --exon-coords=FILE        File name for exon coordinate file" << endl
+	   << "-g  --gene-coords=FILE        File name for gene coordinate file" << endl
 	   << "-j  --junction-out=FILE       File name for junction BED output" << endl;
 
 }
@@ -1150,8 +1191,7 @@ int main(int argc, char *argv[]) {
       }
 
     } else if (cmd == "quant") {
-	  std::chrono::time_point<std::chrono::system_clock> start, end;
-	  start = std::chrono::system_clock::now();
+	  HighResTimer timer;
       if (argc==2) {
         usageEM();
         return 0;
@@ -1274,9 +1314,7 @@ int main(int argc, char *argv[]) {
 
         cerr << endl;
       }
-	  end = std::chrono::system_clock::now();
-	  std::chrono::duration<double> elapsed_seconds = end - start;
-	  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
+	  std::cerr << "elapsed time: " << timer.timeSinceReset().count() << " sec" << std::endl;
     } else if (cmd == "quant-only") {
       if (argc==2) {
         usageEMOnly();
@@ -1385,8 +1423,7 @@ int main(int argc, char *argv[]) {
         cerr << endl;
       }
     } else if (cmd == "pseudo") {
-	  std::chrono::time_point<std::chrono::system_clock> start, end;
-	  start = std::chrono::system_clock::now();
+	  HighResTimer timer;
       if (argc==2) {
         usagePseudo();
         return 0;
@@ -1437,9 +1474,7 @@ int main(int argc, char *argv[]) {
 
         cerr << endl;
       }
-	  end = std::chrono::system_clock::now();
-	  std::chrono::duration<double> elapsed_seconds = end - start;
-	  std::cerr << "elapsed time: " << elapsed_seconds.count() << " sec" << std::endl;
+	  std::cerr << "elapsed time: " << timer.timeSinceReset().count() << " sec" << std::endl;
     } else if (cmd == "h5dump") {
 
       if (argc == 2) {

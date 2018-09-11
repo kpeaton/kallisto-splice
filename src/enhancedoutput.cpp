@@ -54,29 +54,46 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 	  outputbed(opt.outputbed),
 	  bed_file(opt.bed_file)
 {
+	sense_types.resize(8, 0);
 	if (enhancedoutput) {
 		
-		// Load the exon/intron coordinate map data
+		// Open the coordinate map file
 		std::ifstream file(opt.gene_coords_file);
-		DelimRow row;
+		DelimRow row('\t');
 		std::string last_key;
+		int segment_end;
 		auto last_entry = gene_map.end();
 		
+		// Valid chromosome ID set
+		std::set<std::string> valid_chromosomes = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+													"15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT" };
+
+		// Read header line
+		file >> row;
+
+		// Load the exon/intron coordinate map data
 		while (file >> row) {
 
-			int segment_start = std::stoi(row[2]);
-			int segment_end = std::stoi(row[3]);
-			int genome_position = std::stoi(row[4]);
+			int segment_start;
+			int genome_position = std::stoi(row[3]);
+			int segment_length = std::stoi(row[4]) - genome_position + 1;
 
-			if (last_key != row[0]) {  // New exon or intron segment
+			if (last_key != row[7]) {  // New exon or intron segment
 
+				std::string chromID = row[1];
+				if (valid_chromosomes.count(chromID) == 0) {
+					continue;
+				}
+
+				segment_start = 1;
+				segment_end = segment_length;
 				IntronFlag intron_flag = intronNone;
-				int strand = std::stoi(row[1]);
-				int str_pos = row[0].find("::");
+				int strand = std::stoi(row[2]);
+				int str_pos = row[7].find("::");
 				
 				if (str_pos != std::string::npos) {  // Intron segment
 					
-					std::string short_key = row[0].substr(0, str_pos);
+					std::string short_key = row[7].substr(0, str_pos);
 					
 					if (last_key == short_key) {  // Intron end segment that pairs with previous intron start segment
 
@@ -85,12 +102,12 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 						std::get<3>(last_entry->second) = intronStart;
 						
 						// Create common segment data for start and end map entries to reference
-						GeneData &new_entry = gene_map.emplace(short_key, std::forward_as_tuple(row[5], row[6], strand, intronFull, SegmentArray{})).first->second;
+						GeneData &new_entry = gene_map.emplace(short_key, std::forward_as_tuple(row[0], chromID, strand, intronFull, SegmentArray{})).first->second;
 						std::get<4>(new_entry).swap(std::get<4>(last_entry->second));
 						std::get<4>(new_entry).emplace_back(std::initializer_list<int>{ segment_start, segment_end, genome_position });
 
 						// Create intron end segment map entry
-						last_entry = gene_map.emplace(row[0], std::forward_as_tuple(row[5], short_key, strand, intronEnd, SegmentArray{})).first;
+						last_entry = gene_map.emplace(row[7], std::forward_as_tuple(row[0], short_key, strand, intronEnd, SegmentArray{})).first;
 						continue;
 
 					} else {  // Assume full intron segment (for now)
@@ -102,11 +119,16 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 
 				} else {  // Exon segment
 
-					last_key = row[0];
+					last_key = row[7];
 
 				}
 
-				last_entry = gene_map.emplace(row[0], std::forward_as_tuple(row[5], row[6], strand, intron_flag, SegmentArray{})).first;
+				last_entry = gene_map.emplace(row[7], std::forward_as_tuple(row[0], chromID, strand, intron_flag, SegmentArray{})).first;
+
+			} else {
+
+				segment_start = segment_end + 1;
+				segment_end += segment_length;
 
 			}
 
@@ -225,7 +247,7 @@ EnhancedOutput::~EnhancedOutput()
 void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id)
 {
 	GeneData gene_data = gene_map.at(trans_name);
-	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;  // Use trsense from findPosition instead?!
+	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;
 	IntronFlag intron_flag = std::get<3>(gene_data);
 	SegmentArray::const_iterator iter_start, iter_end, intron_pair;
 
@@ -267,11 +289,17 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 	uint align_len = 0;
 	std::string sam_cigar;
 	uint op_len;
+	tlen *= strand;  // Is this needed?
 	int read_rem = slen1;
 	int mate_rem = (posmate == 0) ? 0 : slen2;
 	int read_offset = 0;
 	int start_coord = 0;
 	int end_coord = 0;
+
+	//if (strcmp(name, "HISEQ-MFG:1405:BHJMMMBCXX:1:1101:9800:2445") == 0) {
+	//	std::cerr << std::endl;
+	//	std::cerr << "posread: " << posread << " posmate: " << posmate << " tlen: " << tlen << " gene: " << std::get<0>(gene_data) << std::endl;
+	//}
 
 	// Map alignment to chromosome coordinates
 	for (auto span = iter_start; span != iter_end; span++) {
@@ -294,10 +322,12 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				}
 
 				// Update CIGAR string:
+				op_len = end_coord - start_coord - 1;
+				tlen += sgn<int>(tlen)*op_len;
 				if (sortedbam) {
-					buildBAMCigar(bam_cigar, align_len, negstrand, end_coord - start_coord - 1, 3);
+					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 3);
 				} else if (pseudobam) {
-					buildSAMCigar(sam_cigar, negstrand, end_coord - start_coord - 1, 'N');
+					buildSAMCigar(sam_cigar, negstrand, op_len, 'N');
 				}
 
 				// Store BED file information:
@@ -330,7 +360,9 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				// Find soft clipping at beginning of read:
 				if (posread < segment_start) {
 					op_len = segment_start - posread;
+					tlen -= sgn<int>(tlen)*op_len;
 					read_rem -= op_len;
+					posread += op_len;
 					if (sortedbam) {
 						buildBAMCigar(bam_cigar, align_len, false, op_len, 4);
 					} else if (pseudobam) {
@@ -339,7 +371,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				}
 
 				// Find overlap with segment:
-				read_offset = posread + slen1 - segment_end - 1;
+				read_offset = posread + read_rem - segment_end - 1;
 				if (read_offset > 0) {
 					op_len = read_rem - read_offset;
 					if (negstrand) {
@@ -365,6 +397,11 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 		}
 
+		//if (strcmp(name, "HISEQ-MFG:1405:BHJMMMBCXX:1:1101:9800:2445") == 0) {
+		//	std::cerr << "start: " << segment_start << " end: " << segment_end << " position: " << genome_position << std::endl;
+		//	std::cerr << "posread: " << posread << " posmate: " << posmate << " rem: " << read_rem << " offset: " << read_offset << std::endl;
+		//}
+
 		if (mate_rem > 0) {  // Not done mapping mate
 
 			if (mate_rem < slen2) {  // In the process of mapping mate
@@ -378,7 +415,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 					mate_rem = posmate + slen2 - segment_end - 1;
 					posmate = genome_position - mate_rem;
 				} else {
-					mate_rem = 0;
+					mate_rem = 0;  // START FIXING HERE!!!
 					posmate += genome_position - segment_start;
 				}
 
@@ -394,7 +431,7 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 	if (read_rem > 0) {  // Account for read overhangs
 		if (negstrand) {
-			posread = read_offset - read_rem;
+			posread = read_offset;
 		}
 		if (sortedbam) {
 			buildBAMCigar(bam_cigar, align_len, negstrand, read_rem, 4);
