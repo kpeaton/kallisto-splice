@@ -678,9 +678,11 @@ void EnhancedOutput::outputSortedBam()
 	// Connect BAM output to stdout
 #ifdef _WIN32
 	int result = _setmode(_fileno(stdout), _O_BINARY);
-#endif
-//	std::setvbuf(stdout, NULL, _IOFBF, 65536);
+	//	std::setvbuf(stdout, NULL, _IOFBF, 65536);
 	bam_stream = bgzf_dopen(_fileno(stdout), "w1");
+#else
+	bam_stream = bgzf_dopen(fileno(stdout), "w1");
+#endif
 
 	// Output header
 	bgzf_write(bam_stream, "BAM\001", 4);
