@@ -181,10 +181,6 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
   std::cerr << " done." << std::endl;
   std::cerr << "   elapsed time: " << timer.timeSincePrevious().count() << " sec" << std::endl;
 
-//  for (int v : MP.output_handler.sense_types) {
-//	  std::cerr << v << std::endl;
-//  }
-
   if (MP.output_handler.enhancedoutput) {
 
 	  // Output sorted BAM

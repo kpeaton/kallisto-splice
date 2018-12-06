@@ -54,7 +54,6 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 	  outputbed(opt.outputbed),
 	  bed_file(opt.bed_file)
 {
-	sense_types.resize(8, 0);
 	if (enhancedoutput) {
 		
 		// Open the coordinate map file
@@ -244,7 +243,7 @@ EnhancedOutput::~EnhancedOutput()
 	}
 }
 
-void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id)
+void EnhancedOutput::processAlignment(std::string trans_name, int flag1, int posread, int slen1, const char *name1, const char *seq1, const char *qual1, int flag2, int posmate, int slen2, const char *name2, const char *seq2, const char *qual2, int nmap, int id)
 {
 	GeneData gene_data = gene_map.at(trans_name);
 	int strand = (std::get<2>(gene_data) < 0) ? -1 : 1;
@@ -285,21 +284,34 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 	std::string ref_name = std::get<1>(gene_data);
 	bool negstrand = strand < 0;
-	std::vector<uint> bam_cigar;
-	uint align_len = 0;
-	std::string sam_cigar;
+	std::vector<uint> read_bam_cigar;
+	std::vector<uint> mate_bam_cigar;
+	std::string read_sam_cigar;
+	std::string mate_sam_cigar;
+	uint read_len = 0;
+	uint mate_len = 0;
 	uint op_len;
-	tlen *= strand;  // Is this needed?
+
 	int read_rem = slen1;
-	int mate_rem = (posmate == 0) ? 0 : slen2;
+	int read_mapq = 255;
+	if (flag1 & 0x04) {
+		posread = 0;
+		read_rem = 0;
+		read_mapq = 0;
+	}
+
+	int mate_rem = slen2;
+	int mate_mapq = 255;
+	if (flag2 & 0x04) {
+		posmate = 0;
+		mate_rem = 0;
+		mate_mapq = 0;
+	}
+
 	int read_offset = 0;
+	int mate_offset = 0;
 	int start_coord = 0;
 	int end_coord = 0;
-
-	//if (strcmp(name, "HISEQ-MFG:1405:BHJMMMBCXX:1:1101:9800:2445") == 0) {
-	//	std::cerr << std::endl;
-	//	std::cerr << "posread: " << posread << " posmate: " << posmate << " tlen: " << tlen << " gene: " << std::get<0>(gene_data) << std::endl;
-	//}
 
 	// Map alignment to chromosome coordinates
 	for (auto span = iter_start; span != iter_end; span++) {
@@ -323,11 +335,11 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 				// Update CIGAR string:
 				op_len = end_coord - start_coord - 1;
-				tlen += sgn<int>(tlen)*op_len;
+				read_len += op_len;
 				if (sortedbam) {
-					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 3);
+					buildBAMCigar(read_bam_cigar, negstrand, op_len, 3);
 				} else if (pseudobam) {
-					buildSAMCigar(sam_cigar, negstrand, op_len, 'N');
+					buildSAMCigar(read_sam_cigar, negstrand, op_len, 'N');
 				}
 
 				// Store BED file information:
@@ -349,10 +361,11 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				read_rem -= op_len;
 
 				// Update CIGAR string:
+				read_len += op_len;
 				if (sortedbam) {
-					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
+					buildBAMCigar(read_bam_cigar, negstrand, op_len, 0);
 				} else if (pseudobam) {
-					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
+					buildSAMCigar(read_sam_cigar, negstrand, op_len, 'M');
 				}
 
 			} else if (posread <= segment_end) {  // Begin mapping read
@@ -360,13 +373,12 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				// Find soft clipping at beginning of read:
 				if (posread < segment_start) {
 					op_len = segment_start - posread;
-					tlen -= sgn<int>(tlen)*op_len;
 					read_rem -= op_len;
 					posread += op_len;
 					if (sortedbam) {
-						buildBAMCigar(bam_cigar, align_len, false, op_len, 4);
+						buildBAMCigar(read_bam_cigar, false, op_len, 4);
 					} else if (pseudobam) {
-						buildSAMCigar(sam_cigar, false, op_len, 'S');
+						buildSAMCigar(read_sam_cigar, false, op_len, 'S');
 					}
 				}
 
@@ -387,36 +399,101 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 				read_rem -= op_len;
 
 				// Update CIGAR string:
+				read_len += op_len;
 				if (sortedbam) {
-					buildBAMCigar(bam_cigar, align_len, negstrand, op_len, 0);
+					buildBAMCigar(read_bam_cigar, negstrand, op_len, 0);
 				} else if (pseudobam) {
-					buildSAMCigar(sam_cigar, negstrand, op_len, 'M');
+					buildSAMCigar(read_sam_cigar, negstrand, op_len, 'M');
 				}
 
 			}
 
 		}
 
-		//if (strcmp(name, "HISEQ-MFG:1405:BHJMMMBCXX:1:1101:9800:2445") == 0) {
-		//	std::cerr << "start: " << segment_start << " end: " << segment_end << " position: " << genome_position << std::endl;
-		//	std::cerr << "posread: " << posread << " posmate: " << posmate << " rem: " << read_rem << " offset: " << read_offset << std::endl;
-		//}
-
 		if (mate_rem > 0) {  // Not done mapping mate
 
 			if (mate_rem < slen2) {  // In the process of mapping mate
 
-				mate_rem -= segment_end - segment_start + 1;
-				posmate = genome_position - mate_rem;
+				// Find span of skipped region:
+				if (negstrand) {
+					start_coord = genome_position + segment_end - segment_start;
+					end_coord = mate_offset;
+				} else {
+					start_coord = mate_offset;
+					end_coord = genome_position;
+				}
+
+				// Update CIGAR string:
+				op_len = end_coord - start_coord - 1;
+				mate_len += op_len;
+				if (sortedbam) {
+					buildBAMCigar(mate_bam_cigar, negstrand, op_len, 3);
+				} else if (pseudobam) {
+					buildSAMCigar(mate_sam_cigar, negstrand, op_len, 'N');
+				}
+
+				// Store BED file information:
+				if (outputbed) {
+					mapJunction(id, ref_name, trans_name, intron_flag, negstrand, start_coord, end_coord);
+				}
+
+				// Find overlap with segment:
+				mate_offset = segment_end - segment_start + 1;
+				if (mate_rem > mate_offset){
+					op_len = mate_offset;
+					mate_offset = (negstrand) ? genome_position : mate_offset + genome_position - 1;
+				} else {
+					op_len = mate_rem;
+					if (negstrand) {
+						posmate = start_coord - mate_rem + 1;
+					}
+				}
+				mate_rem -= op_len;
+
+				// Update CIGAR string:
+				mate_len += op_len;
+				if (sortedbam) {
+					buildBAMCigar(mate_bam_cigar, negstrand, op_len, 0);
+				} else if (pseudobam) {
+					buildSAMCigar(mate_sam_cigar, negstrand, op_len, 'M');
+				}
 
 			} else if (posmate <= segment_end) {  // Begin mapping mate
 
-				if (negstrand) {
-					mate_rem = posmate + slen2 - segment_end - 1;
-					posmate = genome_position - mate_rem;
+				// Find soft clipping at beginning of mate:
+				if (posmate < segment_start) {
+					op_len = segment_start - posmate;
+					mate_rem -= op_len;
+					posmate += op_len;
+					if (sortedbam) {
+						buildBAMCigar(mate_bam_cigar, false, op_len, 4);
+					} else if (pseudobam) {
+						buildSAMCigar(mate_sam_cigar, false, op_len, 'S');
+					}
+				}
+
+				// Find overlap with segment:
+				mate_offset = posmate + mate_rem - segment_end - 1;
+				if (mate_offset > 0) {
+					op_len = mate_rem - mate_offset;
+					if (negstrand) {
+						mate_offset = genome_position;
+					} else {
+						mate_offset = genome_position + segment_end - segment_start;
+						posmate += genome_position - segment_start;
+					}
 				} else {
-					mate_rem = 0;  // START FIXING HERE!!!
-					posmate += genome_position - segment_start;
+					op_len = mate_rem;
+					posmate = (negstrand) ? genome_position - mate_offset : posmate + genome_position - segment_start;
+				}
+				mate_rem -= op_len;
+
+				// Update CIGAR string:
+				mate_len += op_len;
+				if (sortedbam) {
+					buildBAMCigar(mate_bam_cigar, negstrand, op_len, 0);
+				} else if (pseudobam) {
+					buildSAMCigar(mate_sam_cigar, negstrand, op_len, 'M');
 				}
 
 			}
@@ -434,16 +511,27 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 			posread = read_offset;
 		}
 		if (sortedbam) {
-			buildBAMCigar(bam_cigar, align_len, negstrand, read_rem, 4);
+			buildBAMCigar(read_bam_cigar, negstrand, read_rem, 4);
 		} else if (pseudobam) {
-			buildSAMCigar(sam_cigar, negstrand, read_rem, 'S');
+			buildSAMCigar(read_sam_cigar, negstrand, read_rem, 'S');
 		}
 	}
 
-	if ((mate_rem == slen2) && (posmate > 0)) {  // Account for mate completely outside segment (is this even necessary?!)
-		std::cerr << "mate outside segment: " << trans_name << std::endl;
-		auto span = --iter_end;
-		posmate = (negstrand) ? (*span)[2] - posmate - slen2 + (*span)[1] + 1 : posmate + (*span)[2] - (*span)[0];
+	if (mate_rem > 0) {  // Account for mate overhangs
+		if (negstrand) {
+			posmate = mate_offset;
+		}
+		if (sortedbam) {
+			buildBAMCigar(mate_bam_cigar, negstrand, read_rem, 4);
+		} else if (pseudobam) {
+			buildSAMCigar(mate_sam_cigar, negstrand, read_rem, 'S');
+		}
+	}
+
+	// Calculate tlen
+	int tlen = 0;
+	if ((posread != 0) && (posmate != 0)) {
+		tlen = (std::max)(posread + read_len, posmate + mate_len) - (std::min)(posread, posmate);
 	}
 
 	// Store junction information
@@ -460,7 +548,13 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 			if ((posread >= start_coord) && (posread < start_coord + 50) &&
 				(posread + slen1 >= start_coord + 50) && (posread + slen1 < end_coord - 50) &&
-				(posmate < end_coord)) {
+				(posmate < end_coord)) {  // Check posmate versus start_coord too?
+				mapJunction(id, ref_name, trans_name, intronStart, negstrand, start_coord + 50, end_coord - 50, 10, 10);
+			}
+
+			if ((posmate >= start_coord) && (posmate < start_coord + 50) &&
+				(posmate + slen2 >= start_coord + 50) && (posmate + slen2 < end_coord - 50) &&
+				(posread < end_coord)) {  // Check posread versus start_coord too?
 				mapJunction(id, ref_name, trans_name, intronStart, negstrand, start_coord + 50, end_coord - 50, 10, 10);
 			}
 
@@ -477,7 +571,13 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 
 			if ((posread >= start_coord + 50) && (posread < end_coord - 50) &&
 				(posread + slen1 >= end_coord - 50) && (posread + slen1 < end_coord) &&
-				(posmate + slen2 >= start_coord)) {
+				(posmate + slen2 >= start_coord)) {  // Check posmate versus end_coord too?
+				mapJunction(id, ref_name, trans_name, intronEnd, negstrand, end_coord - 50, start_coord + 50, 10, 10);
+			}
+
+			if ((posmate >= start_coord + 50) && (posmate < end_coord - 50) &&
+				(posmate + slen2 >= end_coord - 50) && (posmate + slen2 < end_coord) &&
+				(posread + slen1 >= start_coord)) {  // Check posread versus end_coord too?
 				mapJunction(id, ref_name, trans_name, intronEnd, negstrand, end_coord - 50, start_coord + 50, 10, 10);
 			}
 
@@ -492,90 +592,147 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag, int posr
 		uint *buffer = (uint*)(threadBuffer);
 		uint n_bytes = 0;
 		uint ref_ID = ref_seq_map.at(ref_name)[1];
-		uint name_len = strlen(name) + 1;
-		uint n_cigar = bam_cigar.size();
-		uint cigar_bytes = n_cigar * sizeof(uint);
 
-		// refID
-		buffer[1] = ref_ID;
+		uint name_len;
+		uint n_cigar;
+		uint cigar_bytes;
 
-		// pos
-		buffer[2] = posread - 1;
+		if (posread != 0) {
 
-		// bin_mq_nl
-		buffer[3] = ((reg2bin(posread - 1, posread + align_len - 1) << 16) | (mapq << 8) | name_len);
+			name_len = strlen(name1) + 1;
+			n_cigar = read_bam_cigar.size();
+			cigar_bytes = n_cigar * sizeof(uint);
 
-		// flag_nc
-		buffer[4] = ((flag << 16) | n_cigar);
+			buffer[1] = ref_ID;  // refID
+			buffer[2] = posread - 1;  // pos
+			buffer[3] = ((reg2bin(posread - 1, posread + read_len - 1) << 16) | (read_mapq << 8) | name_len);  // bin_mq_nl
+			buffer[4] = ((flag1 << 16) | n_cigar);  // flag_nc
+			buffer[5] = slen1;  // l_seq
+			buffer[6] = ref_ID;  // next_refID
+			buffer[7] = posmate - 1;  // next_pos
+			buffer[8] = tlen;  // tlen
+			n_bytes = 9 * sizeof(uint);
 
-		// l_seq
-		buffer[5] = slen1;
+			// read_name
+			memcpy(threadBuffer + n_bytes, name1, name_len);
+			n_bytes += name_len;
 
-		// next_refID
-		buffer[6] = ref_ID;
+			// cigar
+			memcpy(threadBuffer + n_bytes, read_bam_cigar.data(), cigar_bytes);
+			n_bytes += cigar_bytes;
 
-		// next_pos
-		buffer[7] = posmate - 1;
+			// seq
+			packseq(seq1, threadBuffer + n_bytes, slen1);
+			n_bytes += (slen1 + 1) / 2;
 
-		// tlen
-		buffer[8] = tlen;
-		n_bytes = 9 * sizeof(uint);
+			// qual
+			for (uint i = 0; i < slen1; i++) {
+				(threadBuffer + n_bytes)[i] = qual1[i] - 33;
+			};
+			n_bytes += slen1;
 
-		// read_name
-		memcpy(threadBuffer + n_bytes, name, name_len);
-		n_bytes += name_len;
+			// attributes
+			memcpy(threadBuffer + n_bytes, "NHi", 3);
+			memcpy(threadBuffer + n_bytes + 3, &nmap, sizeof(int));
+			n_bytes += 3 + sizeof(int);
+			memcpy(threadBuffer + n_bytes, (strand < 0) ? "XSA-" : "XSA+", 4);
+			//memcpy(threadBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);  // Which is better to use?!
+			n_bytes += 4;
 
-		// cigar
-		memcpy(threadBuffer + n_bytes, bam_cigar.data(), cigar_bytes);
-		n_bytes += cigar_bytes;
+			// block_size
+			buffer[0] = n_bytes - sizeof(uint);
 
-		// seq
-		packseq(seq, threadBuffer + n_bytes, slen1);
-		n_bytes += (slen1 + 1) / 2;
+			// Output to sorting file
+			sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
+			num_alignments[id][ref_ID]++;
 
-		// qual
-		for (uint i = 0; i < slen1; i++) {
-			(threadBuffer + n_bytes)[i] = qual[i] - 33;
-		};
-		n_bytes += slen1;
+		}
 
-		// attributes
-		memcpy(threadBuffer + n_bytes, "NHi", 3);
-		memcpy(threadBuffer + n_bytes + 3, &nmap, sizeof(int));
-		n_bytes += 3 + sizeof(int);
-		memcpy(threadBuffer + n_bytes, (strand < 0) ? "XSA-" : "XSA+", 4);
-		//memcpy(threadBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);  // Which is better to use?!
-		n_bytes += 4;
+		if (posmate != 0) {
 
-		// block_size
-		buffer[0] = n_bytes - sizeof(uint);
+			name_len = strlen(name2) + 1;
+			n_cigar = mate_bam_cigar.size();
+			cigar_bytes = n_cigar * sizeof(uint);
 
-		// Output to sorting file
-		sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
-		num_alignments[id][ref_ID]++;
+			buffer[1] = ref_ID;  // refID
+			buffer[2] = posmate - 1;  // pos
+			buffer[3] = ((reg2bin(posmate - 1, posmate + mate_len - 1) << 16) | (mate_mapq << 8) | name_len);  // bin_mq_nl
+			buffer[4] = ((flag2 << 16) | n_cigar);  // flag_nc
+			buffer[5] = slen2;  // l_seq
+			buffer[6] = ref_ID;  // next_refID
+			buffer[7] = posread - 1;  // next_pos
+			buffer[8] = -tlen;  // tlen
+			n_bytes = 9 * sizeof(uint);
+
+			// read_name
+			memcpy(threadBuffer + n_bytes, name2, name_len);
+			n_bytes += name_len;
+
+			// cigar
+			memcpy(threadBuffer + n_bytes, mate_bam_cigar.data(), cigar_bytes);
+			n_bytes += cigar_bytes;
+
+			// seq
+			packseq(seq2, threadBuffer + n_bytes, slen2);
+			n_bytes += (slen2 + 1) / 2;
+
+			// qual
+			for (uint i = 0; i < slen2; i++) {
+				(threadBuffer + n_bytes)[i] = qual2[i] - 33;
+			};
+			n_bytes += slen2;
+
+			// attributes
+			memcpy(threadBuffer + n_bytes, "NHi", 3);
+			memcpy(threadBuffer + n_bytes + 3, &nmap, sizeof(int));
+			n_bytes += 3 + sizeof(int);
+			memcpy(threadBuffer + n_bytes, (strand < 0) ? "XSA-" : "XSA+", 4);
+			//memcpy(threadBuffer + n_bytes, bool(flag & 0x10) ? "XSA-" : "XSA+", 4);  // Which is better to use?!
+			n_bytes += 4;
+
+			// block_size
+			buffer[0] = n_bytes - sizeof(uint);
+
+			// Output to sorting file
+			sorting_streams[id][ref_ID].write(threadBuffer, n_bytes);
+			num_alignments[id][ref_ID]++;
+
+		}
 
 	} else if (pseudobam) {
 
-		printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", name, flag, ref_name.c_str(), posread, mapq, sam_cigar.c_str(), posmate, tlen, seq, qual, nmap);
-		if (negstrand) {
-			printf("\tXS:A:-\n");
-		} else {
-			printf("\tXS:A:+\n");
+		if (posread != 0) {
+
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", name1, flag1, ref_name.c_str(), posread, read_mapq, read_sam_cigar.c_str(), posmate, tlen, seq1, qual1, nmap);
+			if (negstrand) {
+				printf("\tXS:A:-\n");
+			} else {
+				printf("\tXS:A:+\n");
+			}
+
+		}
+
+		if (posmate != 0) {
+
+			printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d", name2, flag2, ref_name.c_str(), posmate, mate_mapq, mate_sam_cigar.c_str(), posread, -tlen, seq2, qual2, nmap);
+			if (negstrand) {
+				printf("\tXS:A:-\n");
+			} else {
+				printf("\tXS:A:+\n");
+			}
+
 		}
 
 	}
 
 }
 
-void EnhancedOutput::buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int)
+void EnhancedOutput::buildBAMCigar(std::vector<uint> &bam_cigar, bool prepend, uint op_len, uint cig_int)
 {
 	if (prepend) {
 		bam_cigar.insert(bam_cigar.begin(), ((op_len << 4) | cig_int));
 	} else {
 		bam_cigar.push_back(((op_len << 4) | cig_int));
-	}
-	if (cig_int != 4) {
-		align_len += op_len;
 	}
 }
 

@@ -7,8 +7,8 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
     const char *s2, const char *n2, const char *q2, int slen2, int nlen2, const std::vector<std::pair<KmerEntry,int>>& v2,
 	bool paired, EnhancedOutput &output_handler, int id) {
 
-	static char buf1[32768];
-	static char buf2[32768];
+	static char read_seq_buf[32768];
+	static char read_qual_buf[32768];
 	static char cig_[1000];
 	char *cig = &cig_[0];
 
@@ -50,16 +50,19 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 
     if (paired) {  // paired end
 
-		int flag1 = 0x01 + 0x40;
-		int flag2 = 0x01 + 0x80;
+		static char mate_seq_buf[32768];
+		static char mate_qual_buf[32768];
+
+		int flag1 = 0x01 | 0x40;
+		int flag2 = 0x01 | 0x80;
 		int p1 = -1, p2 = -1;
 		KmerEntry val1, val2;
 		int nmap = v.size();//index.ecmap[ec].size();
 		Kmer km1, km2;
 
 		if (v1.empty()) {
-			flag1 += 0x04; // read unmapped
-			flag2 += 0x08; // mate unmapped
+			flag1 |= 0x04; // read unmapped
+			flag2 |= 0x08; // mate unmapped
 		} else {
 			val1 = v1[0].first;
 			p1 = v1[0].second;
@@ -73,8 +76,8 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		}
 
 		if (v2.empty()) {
-			flag1 += 0x08; // mate unmapped
-			flag2 += 0x04; // read unmapped
+			flag1 |= 0x08; // mate unmapped
+			flag2 |= 0x04; // read unmapped
 		} else {
 			val2 = v2[0].first;
 			p2 = v2[0].second;
@@ -88,12 +91,13 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 		}
 
 		if (!v1.empty() && !v2.empty()) {
-			flag1 += 0x02; // proper pair
-			flag2 += 0x02; // proper pair
+			flag1 |= 0x02; // proper pair
+			flag2 |= 0x02; // proper pair
 		}
 
-		bool revset = false;
-		// output pseudoalignments for read 1
+		bool read_rev_set = false;
+		bool mate_rev_set = false;
+		// output pseudoalignments for read and mate
 		for (auto tr : v) {
 
 			std::string ref_name = index.target_names_[tr];
@@ -105,6 +109,7 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			}
 
 			int f1 = flag1;
+			int f2 = flag2;
 			std::pair<int, bool> x1 {-1, true};
 			std::pair<int, bool> x2 {-1, true};
 			if (p1 != -1) {
@@ -113,11 +118,12 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 					x2 = {x1.first,!x1.second};
 				}
 				read_sense = x1.second;
-				if (read_sense ^ gene_sense) {
-					f1 += 0x10; // read reverse
-					if (!revset) {
-						revseq(&buf1[0], &buf2[0], s1, q1, slen1);
-						revset = true;
+				if (read_sense ^ gene_sense) { // read reverse
+					f1 |= 0x10;
+					f2 |= 0x20;
+					if (!read_rev_set) {
+						revseq(&read_seq_buf[0], &read_qual_buf[0], s1, q1, slen1);
+						read_rev_set = true;
 					}
 				}
 			}
@@ -127,181 +133,55 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 					x1 = {x2.first, !x2.second};
 				}
 				mate_sense = x2.second;
-				if (mate_sense ^ gene_sense) {
-					f1 += 0x20; // mate reverse
+				if (mate_sense ^ gene_sense) { // mate reverse
+					f1 |= 0x20;
+					f2 |= 0x10;
+					if (!mate_rev_set) {
+						revseq(&mate_seq_buf[0], &mate_qual_buf[0], s2, q2, slen2);
+						mate_rev_set = true;
+					}
 				}
 			}
 
-			int tlen = x2.first - x1.first;
-			tlen += sgn<int>(tlen);
-			bool mapped = (f1 & 0x04) == 0;
-			int flag = f1 & 0xFFFF;
 			int posread = (read_sense) ? x1.first : (x1.first - slen1 + 1);
 			int posmate = (mate_sense) ? x2.first : (x2.first - slen2 + 1);
-			if (v1.empty()) {
-				posread = posmate;
-			}
-			if (v2.empty()) {
-				posmate = posread;
-			}
-			int mapq = (!v1.empty()) ? 255 : 0;
-			const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
-			const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
-
-			// Temp check for sense!
-			//bool fw = (km1 == km1.rep());
-			//bool csense = (fw == val1.isFw());
-			//bool trsense = (csense == read_sense);
-			//std::string gene_name = std::get<0>(output_handler.gene_map.at(ref_name));
-			//if (!gene_sense) {
-			//	if (trsense) {
-			//		if (csense) {
-			//			if (output_handler.sense_types[0] == 0) {
-			//				std::cerr << "0: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[0]++;
-			//			}
-			//		} else {
-			//			if (output_handler.sense_types[1] == 0) {
-			//				std::cerr << "1: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[1]++;
-			//			}
-			//		}
-			//	} else {
-			//		if (csense) {
-			//			if (output_handler.sense_types[2] < 30) {
-			//				std::cerr << "2: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[2]++;
-			//			}
-			//		} else {
-			//			if (output_handler.sense_types[3] == 0) {
-			//				std::cerr << "3: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[3]++;
-			//			}
-			//		}
-			//	}
-			//} else {
-			//	if (trsense) {
-			//		if (csense) {
-			//			if (output_handler.sense_types[4] == 0) {
-			//				std::cerr << "4: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[4]++;
-			//			}
-			//		} else {
-			//			if (output_handler.sense_types[5] == 0) {
-			//				std::cerr << "5: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[5]++;
-			//			}
-			//		}
-			//	} else {
-			//		if (csense) {
-			//			if (output_handler.sense_types[6] == 0) {
-			//				std::cerr << "6: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[6]++;
-			//			}
-			//		} else {
-			//			if (output_handler.sense_types[7] == 0) {
-			//				std::cerr << "7: " << n1 << " , " << gene_name << std::endl;
-			//				output_handler.sense_types[7]++;
-			//			}
-			//		}
-			//	}
-			//}
+			const char *seq1 = (f1 & 0x10) ? &read_seq_buf[0] : s1;
+			const char *qual1 = (f1 & 0x10) ? &read_qual_buf[0] : q1;
+			const char *seq2 = (f2 & 0x10) ? &mate_seq_buf[0] : s2;
+			const char *qual2 = (f2 & 0x10) ? &mate_qual_buf[0] : q2;
 
 			if (output_handler.enhancedoutput) {  // Convert to genome coordinates
 
-				if (mapped) {  // Add option to output unmapped reads?!
-					output_handler.processAlignment(ref_name, flag, posread, slen1, posmate, slen2, tlen, n1, mapq, seq, qual, nmap, id);
+				output_handler.processAlignment(ref_name, f1, posread, slen1, n1, seq1, qual1, f2, posmate, slen2, n2, seq2, qual2, nmap, id);
+
+			} else {  // Default Kallisto output when not using enhanced output
+
+				int tlen = x2.first - x1.first;
+				tlen += sgn<int>(tlen);
+				if (v1.empty()) {
+					posread = posmate;
+				}
+				if (v2.empty()) {
+					posmate = posread;
 				}
 
-			} else {  // Default calculations when not using enhanced output
+				int mapq = (!v1.empty()) ? 255 : 0;
+				getCIGARandSoftClip(cig, bool(f1 & 0x10), bool((f1 & 0x04) == 0), posread, posmate, slen1, index.target_lens_[tr]);
+				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, f1, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq1, qual1, nmap);
 
-				getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, posmate, slen1, index.target_lens_[tr]);
+				mapq = (!v2.empty()) ? 255 : 0;
+				getCIGARandSoftClip(cig, bool(f2 & 0x10), bool((f2 & 0x04) == 0), posmate, posread, slen2, index.target_lens_[tr]);
+				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, f2, ref_name.c_str(), posmate, mapq, cig, posread, -tlen, seq2, qual2, nmap);
 
-				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
-				if (v1.empty()) {
+				if (v1.empty() || v2.empty()) {
 					break;  // Only report primary alignment
 				}
 
 			}
 
-			flag1 += 0x100;  // for subsequent secondary alignments
-
-		}
-
-		revset = false;
-		// output pseudoalignments for read 2
-		for (auto tr : v) {
-
-			std::string ref_name = index.target_names_[tr];
-			bool read_sense = true;
-			bool mate_sense = true;
-			bool gene_sense = true;
-			if (output_handler.enhancedoutput) {
-				gene_sense = (std::get<2>(output_handler.gene_map.at(ref_name)) >= 0);
-			}
-
-			int f2 = flag2;
-			std::pair<int, bool> x1 {-1,true};
-			std::pair<int, bool> x2 {-1,true};
-			if (p1 != -1) {
-				x1 = index.findPosition(tr, km1, val1, p1);
-				if (p2 == -1) {
-					x2 = {x1.first,!x1.second};
-				}
-				read_sense = x1.second;
-				if (read_sense ^ gene_sense) {
-					f2 += 0x20; // mate reverse
-				}
-			}
-			if (p2 != -1) {
-				x2 = index.findPosition(tr, km2, val2, p2);
-				if (p1 == -1) {
-					x1 = {x2.first, !x2.second};
-				}
-				mate_sense = x2.second;
-				if (mate_sense ^ gene_sense) {
-					f2 += 0x10; // read reverse
-					if (!revset) {
-						revseq(&buf1[0], &buf2[0], s2, q2, slen2);
-						revset = true;
-					}
-				}
-			}
-
-			int tlen = x1.first - x2.first;
-			tlen += sgn<int>(tlen);
-			bool mapped = (f2 & 0x04) == 0;
-			int flag = f2 & 0xFFFF;
-			int posread = (mate_sense) ? x2.first : (x2.first - slen2 + 1);
-			int posmate = (read_sense) ? x1.first : (x1.first - slen1 + 1);
-			if (v1.empty()) {
-				posmate = posread;
-			}
-			if (v2.empty()) {
-				posread = posmate;
-			}
-			int mapq = (!v2.empty()) ? 255 : 0;
-			const char *seq = (f2 & 0x10) ? &buf1[0] : s2;
-			const char *qual = (f2 & 0x10) ? &buf2[0] : q2;
-
-			if (output_handler.enhancedoutput) {  // Convert to genome coordinates
-
-				if (mapped) {  // Add option to output unmapped reads?!
-					output_handler.processAlignment(ref_name, flag, posread, slen2, posmate, slen1, tlen, n2, mapq, seq, qual, nmap, id);
-				}
-
-			} else {  // Default calculations when not using enhanced output
-
-				getCIGARandSoftClip(cig, bool(f2 & 0x10), mapped, posread, posmate, slen2, index.target_lens_[tr]);
-
-				printf("%s\t%d\t%s\t%d\t%d\t%s\t=\t%d\t%d\t%s\t%s\tNH:i:%d\n", n2, flag, ref_name.c_str(), posread, mapq, cig, posmate, tlen, seq, qual, nmap);
-				if (v2.empty()) {
-					break;  // Only print primary alignment
-				}
-
-			}
-
-			flag2 += 0x100;  // for subsequent secondary alignments
+			// for subsequent secondary alignments
+			flag1 |= 0x100;
+			flag2 |= 0x100;
 
 		}
 
@@ -331,31 +211,26 @@ void outputPseudoBam(const KmerIndex &index, const std::vector<int> &u,
 			int f1 = flag1;
 			auto x1 = index.findPosition(tr, km1, val1, p1);
 	        if (x1.second ^ gene_sense) {
-				f1 += 0x10;
+				f1 |= 0x10;
 				if (!revset) {
-					revseq(&buf1[0], &buf2[0], s1, q1, slen1);
+					revseq(&read_seq_buf[0], &read_qual_buf[0], s1, q1, slen1);
 					revset = true;
 				}
 			}
 
-			bool mapped = (f1 & 0x04) == 0;
-			int flag = f1 & 0xFFFF;
 			int posread = (x1.second) ? x1.first : (x1.first - slen1 + 1);
 			int dummy = 1;
-			
-			const char *seq = (f1 & 0x10) ? &buf1[0] : s1;
-			const char *qual = (f1 & 0x10) ? &buf2[0] : q1;
+			const char *seq = (f1 & 0x10) ? &read_seq_buf[0] : s1;
+			const char *qual = (f1 & 0x10) ? &read_qual_buf[0] : q1;
+
 			if (output_handler.enhancedoutput) {  // Convert to genome coordinates
 
-				if (mapped) {  // Add option to output unmapped reads?!
-					output_handler.processAlignment(ref_name, flag, posread, slen1, 0, 0, 0, n1, 255, seq, qual, nmap, id);
-				}
+				output_handler.processAlignment(ref_name, f1, posread, slen1, n1, seq, qual, 0, 0, 0, 0, 0, 0, nmap, id);
 
 			} else {  // Default calculations when not using enhanced output
 
-				getCIGARandSoftClip(cig, bool(f1 & 0x10), mapped, posread, dummy, slen1, index.target_lens_[tr]);
-
-				printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, flag, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
+				getCIGARandSoftClip(cig, bool(f1 & 0x10), true, posread, dummy, slen1, index.target_lens_[tr]);
+				printf("%s\t%d\t%s\t%d\t255\t%s\t*\t%d\t%d\t%s\t%s\tNH:i:%d\n", n1, f1, ref_name.c_str(), posread, cig, 0, 0, seq, qual, nmap);
 
 			}
 

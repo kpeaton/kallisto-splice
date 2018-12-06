@@ -115,7 +115,6 @@ public:
 	std::mutex sorting_lock;
 	std::vector<std::vector<std::fstream>> sorting_streams;
 	std::vector<std::vector<uint>> num_alignments;
-	std::vector<int> sense_types;
 
 	// BED output data:
 	bool outputbed;
@@ -125,8 +124,8 @@ public:
 	std::vector<JunctionMap> junction_map;
 
 	// Methods:
-	void processAlignment(std::string trans_name, int flag, int posread, int slen1, int posmate, int slen2, int tlen, const char *name, int mapq, const char *seq, const char *qual, int nmap, int id);
-	void buildBAMCigar(std::vector<uint> &bam_cigar, uint &align_len, bool prepend, uint op_len, uint cig_int);
+	void processAlignment(std::string trans_name, int flag1, int posread, int slen1, const char *name1, const char *seq1, const char *qual1, int flag2, int posmate, int slen2, const char *name2, const char *seq2, const char *qual2, int nmap, int id);
+	void buildBAMCigar(std::vector<uint> &bam_cigar, bool prepend, uint op_len, uint cig_int);
 	void buildSAMCigar(std::string &sam_cigar, bool prepend, uint op_len, const char cig_char);
 	void mapJunction(int id, std::string chrom_name, std::string trans_name, IntronFlag intron_flag, bool negstrand, int junction_coord, int pair_coord, int size1 = 0, int size2 = 0);
 	void outputJunction();
