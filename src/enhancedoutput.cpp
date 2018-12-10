@@ -64,8 +64,8 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 		auto last_entry = gene_map.end();
 		
 		// Valid chromosome ID set
-		std::set<std::string> valid_chromosomes = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
-													"15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT" };
+		//std::set<std::string> valid_chromosomes = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+		//											"15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT" };
 
 		// Read header line
 		file >> row;
@@ -80,9 +80,9 @@ EnhancedOutput::EnhancedOutput(KmerIndex &index, const ProgramOptions& opt)
 			if (last_key != row[7]) {  // New exon or intron segment
 
 				std::string chromID = row[1];
-				if (valid_chromosomes.count(chromID) == 0) {
-					continue;
-				}
+				//if (valid_chromosomes.count(chromID) == 0) {
+				//	continue;
+				//}
 
 				segment_start = 1;
 				segment_end = segment_length;
