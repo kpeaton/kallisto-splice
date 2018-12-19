@@ -522,9 +522,9 @@ void EnhancedOutput::processAlignment(std::string trans_name, int flag1, int pos
 			posmate = mate_offset;
 		}
 		if (sortedbam) {
-			buildBAMCigar(mate_bam_cigar, negstrand, read_rem, 4);
+			buildBAMCigar(mate_bam_cigar, negstrand, mate_rem, 4);
 		} else if (pseudobam) {
-			buildSAMCigar(mate_sam_cigar, negstrand, read_rem, 'S');
+			buildSAMCigar(mate_sam_cigar, negstrand, mate_rem, 'S');
 		}
 	}
 
