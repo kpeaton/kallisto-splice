@@ -95,7 +95,7 @@ public:
 
 	// Gene coordinate map:
 	bool enhancedoutput;
-	static enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
+	enum IntronFlag {intronNone, intronStart, intronEnd, intronFull};
 	typedef std::vector<int> SegmentData;
 	typedef std::vector<SegmentData> SegmentArray;
 	typedef std::tuple<std::string, std::string, int, IntronFlag, SegmentArray> GeneData;
