@@ -821,7 +821,7 @@ void EnhancedOutput::outputJunction()
 
 		bed_out << std::get<0>(key) << "\t" << start_coord << "\t" << end_coord << "\t";
 		bed_out << trans_name << "\t" << std::get<0>(junction_data) << "\t" << std::get<2>(junction_data) << "\t";
-		bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(junction_data) << "," << std::get<4>(junction_data) << "\t0,0,0\n";
+		bed_out << start_coord << "\t" << end_coord << "\t255,0,0\t2\t" << std::get<3>(junction_data) << "," << std::get<4>(junction_data) << "\t0,0\n";
 
 	}
 	bed_out.close();

@@ -12,6 +12,7 @@ install_manifest.txt
 test/tests
 test
 builds
+docs
 Debug
 Release
 ./x64
@@ -20,9 +21,6 @@ kallisto*
 src/kallisto
 src/unused
 src/*.a
-src/pthread.h
-src/sched.h
-src/semaphore.h
 src/htslib/unused
 CTestTestfile.cmake
 *~

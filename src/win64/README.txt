@@ -8,7 +8,7 @@ To compile on a Windows 64-bit machine using Visual Studio 2013:
    - In "Linker" -> "General": - Add HDF5 lib directory to "Additional Library Directories"
    - In "Linker" -> "Input": - Add szip.lib, zlib.lib, and hdf5.lib to "Additional Dependencies"
 
- - Install the Microsft SDK v7.1 for Windows: https://www.microsoft.com/en-us/download/details.aspx?id=8279
+ - Install the Microsoft SDK v7.1 for Windows: https://www.microsoft.com/en-us/download/details.aspx?id=8279
 
    - In "Linker" -> "Input": - Add WS2_32.Lib and Psapi.Lib to "Additional Dependencies"
 
